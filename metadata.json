@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix CampusOS - AI College Notice Prioritizer",
+  "description": "Notion-style workspace for college students that extracts, classifies, and prioritizes circulars, notices, and deadlines with AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
