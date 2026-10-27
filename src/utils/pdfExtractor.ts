@@ -1,10 +1,3 @@
-import * as pdfjsLib from 'pdfjs-dist';
-
-// Set up worker source
-if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
-}
-
 export interface ExtractedPdfData {
   text: string;
   numPages: number;
@@ -16,6 +9,11 @@ export async function extractTextFromPdfFile(file: File): Promise<ExtractedPdfDa
   const arrayBuffer = await file.arrayBuffer();
   
   try {
+    const pdfjsLib = await import('pdfjs-dist');
+    if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+    }
+
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
     const pdf = await loadingTask.promise;
     let fullText = '';
@@ -25,7 +23,7 @@ export async function extractTextFromPdfFile(file: File): Promise<ExtractedPdfDa
       const textContent = await page.getTextContent();
       const pageStrings = textContent.items
         .map((item: any) => item.str || '')
-        .filter(str => str.trim().length > 0);
+        .filter((str: string) => str.trim().length > 0);
       
       fullText += pageStrings.join(' ') + '\n\n';
     }

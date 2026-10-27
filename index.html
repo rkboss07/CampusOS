@@ -37,11 +37,39 @@
           event.preventDefault();
         }
       });
+
+      // Fallback loader when repository root is served directly on GitHub Pages
+      // ("Deploy from a branch" -> main / root) without a Vite build step.
+      window.__loadStaticFallback = function() {
+        if (window.__CAMPUS_OS_MOUNTED__ || window.__staticFallbackLoaded) return;
+        window.__staticFallbackLoaded = true;
+
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = './public/gh-pages/app.css';
+        document.head.appendChild(link);
+
+        var script = document.createElement('script');
+        script.type = 'module';
+        script.src = './public/gh-pages/app.js';
+        document.body.appendChild(script);
+      };
     </script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script
+      type="module"
+      src="/src/main.tsx"
+      onerror="window.__loadStaticFallback && window.__loadStaticFallback()"
+    ></script>
+    <script>
+      setTimeout(function() {
+        var root = document.getElementById('root');
+        if (!window.__CAMPUS_OS_MOUNTED__ && root && root.children.length === 0) {
+          window.__loadStaticFallback();
+        }
+      }, 800);
+    </script>
   </body>
 </html>
-

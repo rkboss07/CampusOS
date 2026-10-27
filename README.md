@@ -156,13 +156,13 @@ Standardized on **Plus Jakarta Sans** with a strict 2-weight ceiling (**Regular 
 
 ## Deploying to GitHub Pages
 
-CampusOS is configured to run **100% standalone on GitHub Pages** (including subpath URLs like `https://<username>.github.io/<repo-name>/`):
-- **Relative Asset Paths**: `vite.config.ts` uses `base: './'` so all CSS/JS bundles resolve properly on any GitHub Pages repository URL or custom domain.
-- **Client-Side Analysis Engine**: When hosted on static environments where `/api/*` routes are absent, `src/utils/noticeAnalyzer.ts` automatically executes the client-side notice prioritization, PDF text extraction, deadline parsing, and profile relevance scoring engine without requiring a backend server.
-- **Automated GitHub Actions Workflow**: `.github/workflows/deploy.yml` is pre-configured to build and deploy the `dist/` folder automatically on every push to `main` or `master`.
+CampusOS is configured to run **100% standalone on GitHub Pages** regardless of which deployment method you choose in **Settings → Pages**:
 
-### Steps to Enable GitHub Pages:
-1. Push this repository to GitHub.
-2. In your GitHub repository, open **Settings → Pages**.
-3. Under **Build and deployment → Source**, select **GitHub Actions**.
-4. Push a commit to `main` (or trigger **Deploy CampusOS to GitHub Pages** manually from the **Actions** tab). Your live site URL will appear in the workflow output.
+1. **Deploy from a branch (`main` → `/ (root)`)**:
+   - Pre-compiled static assets are included in `public/gh-pages/` (`app.js`, `app.css`, `pdf.js`), and `index.html` automatically loads the pre-compiled bundle when served from a static branch without a Vite server.
+2. **Deploy from a branch (`main` → `/docs`)**:
+   - A full production static build is included in the `/docs` directory (`docs/index.html`, `docs/assets/*`, `docs/.nojekyll`).
+3. **GitHub Actions (`.github/workflows/deploy.yml`)**:
+   - Automatically builds `dist/` and deploys to GitHub Pages on every push to `main` or `master`.
+4. **Client-Side Notice Prioritization Engine (`src/utils/noticeAnalyzer.ts`)**:
+   - Automatically runs in the browser when `/api/*` server routes are not present, so PDF extraction, notice prioritization, deadlines, and tasks work seamlessly on static hosting.
