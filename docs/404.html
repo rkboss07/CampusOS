@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CampusOS - AI College Notice Prioritizer</title>
+    <meta name="description" content="Notion-style workspace for college students that extracts, classifies, and prioritizes circulars, notices, and deadlines with AI." />
+    <meta property="og:title" content="CampusOS - AI College Notice Prioritizer" />
+    <meta property="og:description" content="Notion-style workspace for college students that extracts, classifies, and prioritizes circulars, notices, and deadlines with AI." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600&display=swap" rel="stylesheet">
+    <script>
+      // Suppress Vite dev server HMR/WebSocket errors in proxied iframe environments
+      window.addEventListener('unhandledrejection', function(event) {
+        var reason = event.reason;
+        var msg = (reason && (reason.message || reason.stack || String(reason))) || '';
+        if (
+          msg.includes('WebSocket') ||
+          msg.includes('@vite/client') ||
+          msg.includes('closed without opened') ||
+          msg.includes('ModuleRunnerTransport')
+        ) {
+          event.preventDefault();
+        }
+      });
+      window.addEventListener('error', function(event) {
+        var msg = event.message || '';
+        var filename = event.filename || '';
+        if (
+          msg.includes('WebSocket') ||
+          filename.includes('@vite/client') ||
+          msg.includes('ModuleRunnerTransport')
+        ) {
+          event.preventDefault();
+        }
+      });
+
+      // Fallback loader when repository root is served directly on GitHub Pages
+      // ("Deploy from a branch" -> main / root) without a Vite build step.
+      window.__loadStaticFallback = function() {
+        if (window.__CAMPUS_OS_MOUNTED__ || window.__staticFallbackLoaded) return;
+        window.__staticFallbackLoaded = true;
+
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = './public/gh-pages/app.css?v=20261027_auth2';
+        document.head.appendChild(link);
+
+        var script = document.createElement('script');
+        script.type = 'module';
+        script.src = './public/gh-pages/app.js?v=20261027_auth2';
+        document.body.appendChild(script);
+      };
+    </script>
+    <script type="module" crossorigin src="./assets/app.js?v=20261027_auth2"></script>
+    <link rel="stylesheet" crossorigin href="./assets/app.css?v=20261027_auth2">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      setTimeout(function() {
+        var root = document.getElementById('root');
+        if (!window.__CAMPUS_OS_MOUNTED__ && root && root.children.length === 0) {
+          window.__loadStaticFallback();
+        }
+      }, 800);
+    </script>
+  </body>
+</html>

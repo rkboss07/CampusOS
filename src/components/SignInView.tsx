@@ -1,21 +1,40 @@
 import React, { useState } from 'react';
-import { Sparkles, CheckCircle2, Calendar, FileUp, ShieldCheck, Sun, Moon, UserCheck } from 'lucide-react';
+import {
+  Sparkles,
+  CheckCircle2,
+  Calendar,
+  FileUp,
+  ShieldCheck,
+  Sun,
+  Moon,
+  UserCheck,
+  Mail,
+  ArrowLeft,
+  LogIn,
+} from 'lucide-react';
 
 interface SignInViewProps {
   onSignIn: () => Promise<void>;
+  onEmailSignIn: (name: string, email: string) => Promise<void>;
   onGuestSignIn: () => void;
+  onCancel?: () => void;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
 }
 
 export const SignInView: React.FC<SignInViewProps> = ({
   onSignIn,
+  onEmailSignIn,
   onGuestSignIn,
+  onCancel,
   isDarkMode,
   onToggleDarkMode,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [nameInput, setNameInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
+  const [showEmailForm, setShowEmailForm] = useState(false);
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
@@ -23,9 +42,40 @@ export const SignInView: React.FC<SignInViewProps> = ({
     try {
       await onSignIn();
     } catch (err: any) {
-      if (err?.code !== 'auth/popup-closed-by-user') {
-        setErrorMsg(err?.message || 'Could not complete Google Sign-In. Please try again.');
+      const code = err?.code || '';
+      if (code === 'auth/popup-closed-by-user') {
+        // User closed popup manually
+      } else if (code === 'auth/unauthorized-domain') {
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+        setShowEmailForm(true);
+        setErrorMsg(
+          `Google popup requires "${host}" to be added in Firebase Console → Authentication → Settings → Authorized domains. You can sign in immediately below with your Email / Campus ID for your personal workspace.`
+        );
+      } else {
+        setShowEmailForm(true);
+        setErrorMsg(
+          err?.message ||
+            'Could not complete Google Sign-In popup. You can sign in below with your Email or continue as Guest.'
+        );
       }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = emailInput.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setErrorMsg('Please enter a valid college or personal email address.');
+      return;
+    }
+    setIsLoading(true);
+    setErrorMsg(null);
+    try {
+      await onEmailSignIn(nameInput.trim(), cleanEmail);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Could not sign in with email.');
     } finally {
       setIsLoading(false);
     }
@@ -46,26 +96,38 @@ export const SignInView: React.FC<SignInViewProps> = ({
           <span className="type-section-title text-[#1C1B18]">CampusOS</span>
         </div>
 
-        <button
-          onClick={onToggleDarkMode}
-          className="type-button px-3.5 py-2 rounded-xl bg-[#F6F3EC] hover:bg-[#ECE7DF] border border-[#EAE5DC] text-[#1C1B18] flex items-center gap-2 transition-colors cursor-pointer"
-        >
-          {isDarkMode ? (
-            <>
-              <Moon className="w-4 h-4 text-[#F97316]" />
-              <span>Dark Mode</span>
-            </>
-          ) : (
-            <>
-              <Sun className="w-4 h-4 text-[#F97316]" />
-              <span>Light Mode</span>
-            </>
+        <div className="flex items-center gap-2">
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              className="type-button px-3.5 py-2 rounded-xl bg-white hover:bg-[#ECE7DF] border border-[#EAE5DC] text-[#1C1B18] flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4 text-[#F97316]" />
+              <span>Back to Workspace</span>
+            </button>
           )}
-        </button>
+
+          <button
+            onClick={onToggleDarkMode}
+            className="type-button px-3.5 py-2 rounded-xl bg-[#F6F3EC] hover:bg-[#ECE7DF] border border-[#EAE5DC] text-[#1C1B18] flex items-center gap-2 transition-colors cursor-pointer"
+          >
+            {isDarkMode ? (
+              <>
+                <Moon className="w-4 h-4 text-[#F97316]" />
+                <span>Dark Mode</span>
+              </>
+            ) : (
+              <>
+                <Sun className="w-4 h-4 text-[#F97316]" />
+                <span>Light Mode</span>
+              </>
+            )}
+          </button>
+        </div>
       </header>
 
       {/* Main Sign-In Card */}
-      <main className="max-w-4xl w-full mx-auto my-auto py-8">
+      <main className="max-w-4xl w-full mx-auto my-auto py-6">
         <div className="bg-white rounded-3xl border border-[#EAE5DC] shadow-[0_16px_48px_rgba(28,27,24,0.06)] overflow-hidden grid grid-cols-1 lg:grid-cols-12">
           {/* Left Column: Value Proposition */}
           <div className="lg:col-span-7 p-7 sm:p-10 space-y-6 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-[#EAE5DC]">
@@ -80,7 +142,7 @@ export const SignInView: React.FC<SignInViewProps> = ({
               </h1>
 
               <p className="type-body text-[#57534E]">
-                Turn scattered college circulars, notices, and deadlines into prioritized, actionable tasks—synced to your Google account or stored locally in Guest Mode.
+                Turn scattered college circulars, notices, and deadlines into prioritized, actionable tasks—synced to your Google account, Campus Email, or stored locally in Guest Mode.
               </p>
             </div>
 
@@ -122,25 +184,26 @@ export const SignInView: React.FC<SignInViewProps> = ({
                     Cloud Sync or Local Guest Cache
                   </h2>
                   <p className="type-caption mt-0.5">
-                    Sign in with Google for cloud persistence across devices, or continue as a Guest using browser cache and cookies.
+                    Sign in with Google or your email for per-user isolation, or continue as a Guest using browser cache and cookies.
                   </p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Right Column: Google Sign-In & Guest Login Actions */}
-          <div className="lg:col-span-5 p-7 sm:p-10 bg-[#F6F3EC] flex flex-col justify-center space-y-5">
-            <div className="space-y-2 text-center">
+          {/* Right Column: Google Sign-In, Email Sign-In & Guest Login Actions */}
+          <div className="lg:col-span-5 p-7 sm:p-9 bg-[#F6F3EC] flex flex-col justify-center space-y-4">
+            <div className="space-y-1.5 text-center">
               <h2 className="type-section-title text-[#1C1B18]">
                 Sign in to your workspace
               </h2>
-              <p className="type-body text-[#78736A]">
-                Continue with your Google account or enter directly as a guest.
+              <p className="type-caption text-[#78736A]">
+                Each user gets a separate, clean workspace with zero initial entries.
               </p>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5">
+              {/* 1. Google OAuth Button */}
               <button
                 onClick={handleGoogleLogin}
                 disabled={isLoading}
@@ -167,10 +230,63 @@ export const SignInView: React.FC<SignInViewProps> = ({
                 <span>{isLoading ? 'Signing in...' : 'Continue with Google'}</span>
               </button>
 
+              {/* 2. Email / Campus ID Sign-In Toggle or Form */}
+              {!showEmailForm ? (
+                <button
+                  type="button"
+                  onClick={() => setShowEmailForm(true)}
+                  disabled={isLoading}
+                  className="type-button w-full py-3 px-5 rounded-2xl bg-white hover:bg-[#ECE7DF] text-[#1C1B18] border border-[#E5E0D5] flex items-center justify-center gap-2.5 shadow-2xs transition-all cursor-pointer"
+                >
+                  <Mail className="w-4 h-4 text-[#F97316]" />
+                  <span>Sign in with Email / Campus ID</span>
+                </button>
+              ) : (
+                <form
+                  onSubmit={handleEmailSubmit}
+                  className="p-3.5 rounded-2xl bg-white border border-[#E5E0D5] space-y-2.5"
+                >
+                  <div>
+                    <label className="type-caption block mb-1 text-[#57534E]">
+                      Your Name
+                    </label>
+                    <input
+                      type="text"
+                      value={nameInput}
+                      onChange={(e) => setNameInput(e.target.value)}
+                      placeholder="e.g. Aarav Sharma"
+                      className="type-body w-full px-3 py-2 rounded-xl bg-[#FAF8F5] border border-[#EAE5DC] text-[#1C1B18] focus:outline-none focus:border-[#F97316]"
+                    />
+                  </div>
+                  <div>
+                    <label className="type-caption block mb-1 text-[#57534E]">
+                      College or Personal Email
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      placeholder="you@college.edu"
+                      className="type-body w-full px-3 py-2 rounded-xl bg-[#FAF8F5] border border-[#EAE5DC] text-[#1C1B18] focus:outline-none focus:border-[#F97316]"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="type-button w-full py-2.5 px-4 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>Open Personal Workspace</span>
+                  </button>
+                </form>
+              )}
+
+              {/* 3. Continue as Guest Button */}
               <button
                 onClick={onGuestSignIn}
                 disabled={isLoading}
-                className="type-button w-full py-3.5 px-5 rounded-2xl bg-white hover:bg-[#ECE7DF] disabled:opacity-50 text-[#1C1B18] border border-[#E5E0D5] flex items-center justify-center gap-2.5 shadow-2xs transition-all cursor-pointer"
+                className="type-button w-full py-3 px-5 rounded-2xl bg-white hover:bg-[#ECE7DF] disabled:opacity-50 text-[#1C1B18] border border-[#E5E0D5] flex items-center justify-center gap-2.5 shadow-2xs transition-all cursor-pointer"
               >
                 <UserCheck className="w-4 h-4 text-[#F97316]" />
                 <span>Continue as Guest</span>
@@ -178,13 +294,13 @@ export const SignInView: React.FC<SignInViewProps> = ({
             </div>
 
             {errorMsg && (
-              <div className="type-caption p-3 rounded-xl bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] text-center">
+              <div className="type-caption p-3 rounded-xl bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] text-left">
                 {errorMsg}
               </div>
             )}
 
             <p className="type-caption text-center">
-              Guest sessions store notices, tasks, and profile settings locally using browser cache & cookies.
+              Guest & Email sessions persist your personal board using browser cache & cookies on any host (including GitHub Pages).
             </p>
           </div>
         </div>

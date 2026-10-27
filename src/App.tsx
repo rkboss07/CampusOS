@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Menu } from 'lucide-react';
+import { Menu, LogIn, LogOut, UserCheck, ShieldCheck } from 'lucide-react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
@@ -23,6 +23,10 @@ import {
   startGuestSession,
   endGuestSession,
   getOrCreateGuestId,
+  getActiveNamedUser,
+  startNamedUserSession,
+  endNamedUserSession,
+  NamedUserAccount,
   loadGuestWorkspace,
   saveGuestWorkspace,
 } from './utils/guestStorage';
@@ -44,9 +48,17 @@ import {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [namedUser, setNamedUser] = useState<NamedUserAccount | null>(() => getActiveNamedUser());
   const [isGuestMode, setIsGuestMode] = useState<boolean>(() => isGuestSessionActive());
   const [guestId, setGuestId] = useState<string>(() => getOrCreateGuestId());
   const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
+  const [showSignInScreen, setShowSignInScreen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return (
+      window.location.search.includes('signin=1') ||
+      window.location.hash.includes('signin')
+    );
+  });
 
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
@@ -75,7 +87,13 @@ export default function App() {
     let unsubNotices: (() => void) | null = null;
     let unsubTasks: (() => void) | null = null;
 
+    // Safety fallback timer so static hosts / blocked third-party cookies never hang on loading
+    const authTimeout = setTimeout(() => {
+      setIsAuthReady(true);
+    }, 1200);
+
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      clearTimeout(authTimeout);
       if (unsubNotices) {
         unsubNotices();
         unsubNotices = null;
@@ -86,9 +104,12 @@ export default function App() {
       }
 
       if (user) {
-        // Authenticated with Google: exit guest mode and load Firestore workspace
+        // Authenticated with Google: exit guest/named mode and load Firestore workspace
         endGuestSession();
+        endNamedUserSession();
+        setNamedUser(null);
         setIsGuestMode(false);
+        setShowSignInScreen(false);
         setCurrentUser(user);
         setNotices([]);
         setTasks([]);
@@ -120,19 +141,29 @@ export default function App() {
         return;
       }
 
-      // Not signed in with Google: check if Guest session is active
+      // Not signed in with Google: check if a Named Email Account or Guest session is active
       setCurrentUser(null);
-      if (isGuestSessionActive()) {
+      const savedNamedAccount = getActiveNamedUser();
+      if (savedNamedAccount) {
+        setNamedUser(savedNamedAccount);
+        setIsGuestMode(false);
+        const userData = await loadGuestWorkspace(savedNamedAccount.uid, savedNamedAccount.name);
+        setProfile(userData.profile);
+        setNotices(userData.notices);
+        setTasks(userData.tasks);
+        setLatestProcessedNotice(userData.notices[0] || null);
+      } else if (isGuestSessionActive()) {
         const activeGuestId = getOrCreateGuestId();
         setGuestId(activeGuestId);
         setIsGuestMode(true);
-        const guestData = await loadGuestWorkspace(activeGuestId);
+        const guestData = await loadGuestWorkspace(activeGuestId, 'Guest Student');
         setProfile(guestData.profile);
         setNotices(guestData.notices);
         setTasks(guestData.tasks);
         setLatestProcessedNotice(guestData.notices[0] || null);
       } else {
         setIsGuestMode(false);
+        setNamedUser(null);
         setNotices([]);
         setTasks([]);
         setLatestProcessedNotice(null);
@@ -142,110 +173,98 @@ export default function App() {
     });
 
     return () => {
+      clearTimeout(authTimeout);
       unsubAuth();
       if (unsubNotices) unsubNotices();
       if (unsubTasks) unsubTasks();
     };
   }, []);
 
-  // Automatically sync Guest workspace to Cookies, localStorage, and Cache Storage API
+  // Persist workspace to browser Cache Storage, LocalStorage, and Cookies whenever local account/guest data changes
+  const activeLocalWorkspaceId = !currentUser
+    ? namedUser
+      ? namedUser.uid
+      : isGuestMode
+      ? guestId
+      : null
+    : null;
+
   useEffect(() => {
-    if (!isGuestMode || currentUser) return;
-    saveGuestWorkspace(guestId, {
-      profile,
-      notices,
-      tasks,
+    if (!isAuthReady || !activeLocalWorkspaceId) return;
+    saveGuestWorkspace(activeLocalWorkspaceId, { profile, notices, tasks });
+  }, [isAuthReady, activeLocalWorkspaceId, profile, notices, tasks]);
+
+  // Recompute daily brief when notices or profile change
+  useEffect(() => {
+    let isMounted = true;
+    if (!currentUser && !namedUser && !isGuestMode) return;
+
+    generateDailyBriefWithFallback(notices, profile).then((brief) => {
+      if (isMounted) setDailyBrief(brief);
     });
-  }, [isGuestMode, currentUser, guestId, profile, notices, tasks]);
+    return () => {
+      isMounted = false;
+    };
+  }, [notices, profile, currentUser, namedUser, isGuestMode]);
 
-  // Load Daily Brief when user/guest or notices change
-  useEffect(() => {
-    if (!currentUser && !isGuestMode) return;
-    generateDailyBriefWithFallback({
-      notices,
-      tasks,
-      studentProfile: profile,
-      currentDate: '2026-08-18',
-    }).then(setDailyBrief);
-  }, [currentUser?.uid, isGuestMode, notices.length, profile.branch, profile.year]);
-
-  // Prioritize notice handler (saves to Firestore for Google users or local Cache/Cookies for Guest users)
+  // Quick prioritize from dashboard hero input or file upload
   const handlePrioritizeNotice = async (
-    text: string,
+    rawText: string,
     fileData?: { fileName: string; base64?: string }
   ) => {
-    if (!currentUser && !isGuestMode) return;
+    if (!rawText.trim() && !fileData?.base64) return;
+    if (!currentUser && !namedUser && !isGuestMode) return;
     setIsProcessingNotice(true);
     try {
-      const result = await analyzeNoticeWithFallback({
-        noticeText: text,
-        mediaBase64: fileData?.base64,
-        mimeType: 'application/pdf',
-        studentProfile: profile,
-      });
-
+      const analyzed = await analyzeNoticeWithFallback(rawText, profile, fileData);
       const noticeId = `notice-${Date.now()}`;
       const newNotice: Notice = {
         id: noticeId,
-        title: result.title || 'Official Academic Notice',
-        rawContent: text,
-        category: result.category || 'General',
-        targetAudience: result.targetAudience || 'All Students',
-        targetBranch: result.targetBranch || profile.branch,
-        targetYear: result.targetYear || profile.year,
-        deadline: result.deadline || '2026-08-18',
-        deadlineTime: result.deadlineTime || '5:00 PM',
-        eventDate: result.eventDate || result.deadline || null,
-        eventTime: result.eventTime || null,
-        venue: result.venue || 'College Campus',
-        requiredAction: result.requiredAction || 'Review details',
-        actionType: result.actionType || 'portal_action',
-        portalUrl: result.portalUrl || null,
-        importance: result.importance ?? 90,
-        urgency: result.urgency ?? 90,
-        studentRelevance: result.studentRelevance ?? 95,
-        priorityScore: result.priorityScore ?? 94,
-        priorityLevel: result.priorityLevel || 'Critical',
-        priorityReason:
-          result.priorityReason ||
-          'High priority score based on immediate deadline proximity and branch alignment.',
-        summary: result.summary || text.slice(0, 140),
-        keyPoints: result.keyPoints || [],
-        consequencesOfMissing: result.consequencesOfMissing || '',
+        title: analyzed.title,
+        rawText: rawText || `Uploaded PDF: ${fileData?.fileName || 'Document'}`,
+        summary: analyzed.summary,
+        category: analyzed.category,
+        priorityScore: analyzed.priorityScore,
+        priorityLevel: analyzed.priorityLevel,
+        deadline: analyzed.deadline,
+        requiredAction: analyzed.requiredAction,
+        targetBranches: analyzed.targetBranches,
+        targetYears: analyzed.targetYears,
+        sender: fileData?.fileName ? `PDF (${fileData.fileName})` : 'Quick Drop Input',
+        receivedAt: new Date().toISOString().split('T')[0],
+        aiReasoning: analyzed.aiReasoning,
+        scoreBreakdown: analyzed.scoreBreakdown,
         status: 'active',
-        createdAt: new Date().toISOString(),
-        source: fileData ? 'pdf' : 'text',
-        sourceFileName: fileData?.fileName || 'Circular_Notice.pdf',
+        attachmentName: fileData?.fileName,
       };
 
-      const linkedTask: Task = {
+      const newTask: Task = {
         id: `task-${Date.now()}`,
         noticeId: newNotice.id,
-        title: newNotice.requiredAction,
-        dueDate: newNotice.deadline || '2026-08-18',
-        priority: newNotice.priorityLevel,
-        category: newNotice.category,
+        title: analyzed.requiredAction,
+        dueDate: analyzed.deadline || '2026-08-18',
+        priority: analyzed.priorityLevel,
+        category: analyzed.category,
         completed: false,
         estimatedMinutes: 20,
       };
 
       if (currentUser) {
         await createNoticeInDb(currentUser.uid, newNotice);
-        await createTaskInDb(currentUser.uid, linkedTask);
-      } else if (isGuestMode) {
+        await createTaskInDb(currentUser.uid, newTask);
+      } else {
         setNotices((prev) => [newNotice, ...prev]);
-        setTasks((prev) => [linkedTask, ...prev]);
+        setTasks((prev) => [newTask, ...prev]);
       }
 
       setLatestProcessedNotice(newNotice);
-    } catch (err) {
-      console.error(err);
+      setSelectedNotice(newNotice);
     } finally {
       setIsProcessingNotice(false);
     }
   };
 
-  // Toggle task completed (syncs with corresponding notice)
+  // Toggle task completion (syncs back to notice status)
   const handleToggleTask = async (taskId: string) => {
     const targetTask = tasks.find((t) => t.id === taskId);
     if (!targetTask) return;
@@ -260,7 +279,7 @@ export default function App() {
           nextCompleted ? 'completed' : 'active'
         );
       }
-    } else if (isGuestMode) {
+    } else {
       setTasks((prev) =>
         prev.map((t) => (t.id === taskId ? { ...t, completed: nextCompleted } : t))
       );
@@ -289,7 +308,7 @@ export default function App() {
 
     if (currentUser) {
       await createTaskInDb(currentUser.uid, newTask);
-    } else if (isGuestMode) {
+    } else {
       setTasks((prev) => [newTask, ...prev]);
     }
   };
@@ -312,7 +331,7 @@ export default function App() {
           nextStatus === 'completed'
         );
       }
-    } else if (isGuestMode) {
+    } else {
       setNotices((prev) =>
         prev.map((n) => (n.id === noticeId ? { ...n, status: nextStatus } : n))
       );
@@ -336,7 +355,7 @@ export default function App() {
       for (const t of linkedTasks) {
         await deleteTaskFromDb(currentUser.uid, t.id);
       }
-    } else if (isGuestMode) {
+    } else {
       setNotices((prev) => prev.filter((n) => n.id !== noticeId));
       setTasks((prev) => prev.filter((t) => t.noticeId !== noticeId));
       setLatestProcessedNotice((prev) => (prev?.id === noticeId ? null : prev));
@@ -362,7 +381,7 @@ export default function App() {
       };
       if (currentUser) {
         await createTaskInDb(currentUser.uid, newTask);
-      } else if (isGuestMode) {
+      } else {
         setTasks((prev) => [newTask, ...prev]);
       }
     }
@@ -380,31 +399,60 @@ export default function App() {
 
   const handleSignIn = async () => {
     await signInWithGoogle();
+    setShowSignInScreen(false);
+  };
+
+  const handleEmailSignIn = async (name: string, email: string) => {
+    if (currentUser) {
+      await signOutUser();
+    }
+    const account = startNamedUserSession(name, email);
+    setNamedUser(account);
+    setIsGuestMode(false);
+    const userData = await loadGuestWorkspace(account.uid, account.name);
+    setProfile(userData.profile);
+    setNotices(userData.notices);
+    setTasks(userData.tasks);
+    setLatestProcessedNotice(userData.notices[0] || null);
+    setSelectedNotice(null);
+    setShowSignInScreen(false);
   };
 
   const handleGuestSignIn = async () => {
+    if (currentUser) {
+      await signOutUser();
+    }
+    endNamedUserSession();
+    setNamedUser(null);
     const id = startGuestSession();
     setGuestId(id);
-    const guestData = await loadGuestWorkspace(id);
+    const guestData = await loadGuestWorkspace(id, 'Guest Student');
     setProfile(guestData.profile);
     setNotices(guestData.notices);
     setTasks(guestData.tasks);
     setLatestProcessedNotice(guestData.notices[0] || null);
+    setSelectedNotice(null);
     setIsGuestMode(true);
+    setShowSignInScreen(false);
   };
 
   const handleSignOut = async () => {
     if (isGuestMode) {
       endGuestSession();
       setIsGuestMode(false);
-      setNotices([]);
-      setTasks([]);
-      setLatestProcessedNotice(null);
-      setSelectedNotice(null);
     }
+    if (namedUser) {
+      endNamedUserSession();
+      setNamedUser(null);
+    }
+    setNotices([]);
+    setTasks([]);
+    setLatestProcessedNotice(null);
+    setSelectedNotice(null);
     if (currentUser) {
       await signOutUser();
     }
+    setShowSignInScreen(true);
   };
 
   if (!isAuthReady) {
@@ -421,11 +469,15 @@ export default function App() {
     );
   }
 
-  if (!currentUser && !isGuestMode) {
+  const hasActiveSession = Boolean(currentUser || namedUser || isGuestMode);
+
+  if (!hasActiveSession || showSignInScreen) {
     return (
       <SignInView
         onSignIn={handleSignIn}
+        onEmailSignIn={handleEmailSignIn}
         onGuestSignIn={handleGuestSignIn}
+        onCancel={hasActiveSession ? () => setShowSignInScreen(false) : undefined}
         isDarkMode={isDarkMode}
         onToggleDarkMode={() => setIsDarkMode((prev) => !prev)}
       />
@@ -435,6 +487,12 @@ export default function App() {
   const criticalCount = notices.filter(
     (n) => n.priorityLevel === 'Critical' && n.status !== 'completed'
   ).length;
+
+  const activeUserEmail = currentUser
+    ? currentUser.email
+    : namedUser
+    ? namedUser.email
+    : 'Guest Session (Local Cache & Cookies)';
 
   return (
     <div
@@ -448,9 +506,11 @@ export default function App() {
           currentTab={currentTab}
           setCurrentTab={setCurrentTab}
           profile={profile}
-          userEmail={currentUser ? currentUser.email : 'Guest Session (Local Cache & Cookies)'}
+          userEmail={activeUserEmail}
           userPhotoUrl={currentUser?.photoURL}
+          isGuestMode={isGuestMode && !currentUser && !namedUser}
           onOpenProfile={() => setIsProfileModalOpen(true)}
+          onOpenSignIn={() => setShowSignInScreen(true)}
           onSignOut={handleSignOut}
           criticalCount={criticalCount}
           isDarkMode={isDarkMode}
@@ -461,19 +521,65 @@ export default function App() {
 
         {/* Main Content Viewport */}
         <main className="flex-1 bg-white sm:rounded-2xl sm:my-2 sm:mr-2 border-l sm:border border-[#EAE5DC] overflow-y-auto px-4 sm:px-9 py-5 sm:py-6 transition-colors min-w-0">
-          {/* Mobile Menu Trigger Bar (Only visible on phones < md) */}
-          <div className="flex md:hidden items-center justify-between pb-4 mb-4 border-b border-[#EAE5DC]">
-            <button
-              onClick={() => setIsMobileSidebarOpen(true)}
-              className="type-button inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#F6F3EC] border border-[#EAE5DC] text-[#1C1B18] cursor-pointer"
-              aria-label="Open navigation menu"
-            >
-              <Menu className="w-4 h-4 text-[#F97316]" />
-              <span>Menu</span>
-            </button>
-            <span className="type-caption font-semibold capitalize">
-              {currentTab}
-            </span>
+          {/* Top Account & Navigation Bar (Visible on all screens so Sign In / Account Switch is always accessible) */}
+          <div className="flex items-center justify-between gap-3 pb-4 mb-5 border-b border-[#EAE5DC]">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <button
+                onClick={() => setIsMobileSidebarOpen(true)}
+                className="type-button md:hidden inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#F6F3EC] border border-[#EAE5DC] text-[#1C1B18] cursor-pointer shrink-0"
+                aria-label="Open navigation menu"
+              >
+                <Menu className="w-4 h-4 text-[#F97316]" />
+                <span>Menu</span>
+              </button>
+
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="type-caption font-semibold inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#FAF8F5] border border-[#EAE5DC] text-[#57534E] truncate">
+                  {currentUser || namedUser ? (
+                    <>
+                      <ShieldCheck className="w-3.5 h-3.5 text-[#10B981] shrink-0" />
+                      <span className="truncate">
+                        {currentUser?.email || namedUser?.email}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <UserCheck className="w-3.5 h-3.5 text-[#F97316] shrink-0" />
+                      <span>Guest Mode (Local Cache)</span>
+                    </>
+                  )}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {isGuestMode && !currentUser && !namedUser ? (
+                <button
+                  onClick={() => setShowSignInScreen(true)}
+                  className="type-button px-3.5 py-2 rounded-xl bg-[#1C1B18] hover:bg-[#33312C] text-white inline-flex items-center gap-2 shadow-2xs transition-colors cursor-pointer"
+                >
+                  <LogIn className="w-3.5 h-3.5 text-[#F97316]" />
+                  <span>Sign In</span>
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setShowSignInScreen(true)}
+                    className="type-button px-3 py-1.5 rounded-xl bg-[#F6F3EC] hover:bg-[#ECE7DF] border border-[#EAE5DC] text-[#1C1B18] inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <LogIn className="w-3.5 h-3.5 text-[#F97316]" />
+                    <span>Switch Account</span>
+                  </button>
+                  <button
+                    onClick={handleSignOut}
+                    className="type-button px-3 py-1.5 rounded-xl bg-[#FAF8F5] hover:bg-[#FEF2F2] border border-[#EAE5DC] text-[#57534E] hover:text-[#EF4444] inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Sign Out</span>
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           {currentTab === 'dashboard' && (
@@ -545,7 +651,7 @@ export default function App() {
           if (currentUser) {
             await createNoticeInDb(currentUser.uid, notice);
             await createTaskInDb(currentUser.uid, linkedTask);
-          } else if (isGuestMode) {
+          } else {
             setNotices((prev) => [notice, ...prev]);
             setTasks((prev) => [linkedTask, ...prev]);
           }

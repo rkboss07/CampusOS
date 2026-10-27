@@ -3,9 +3,16 @@ import { defaultStudentProfile } from '../data/initialData';
 
 const GUEST_SESSION_COOKIE = 'campusos_guest_session';
 const GUEST_ID_COOKIE = 'campusos_guest_id';
+const NAMED_USER_COOKIE = 'campusos_named_user';
 const GUEST_PROFILE_COOKIE = 'campusos_guest_profile';
 const GUEST_STORAGE_PREFIX = 'campusos_guest_data_';
 const CACHE_NAME = 'campusos-guest-cache-v1';
+
+export interface NamedUserAccount {
+  uid: string;
+  name: string;
+  email: string;
+}
 
 function setCookie(name: string, value: string, days = 30) {
   if (typeof document === 'undefined') return;
@@ -34,6 +41,41 @@ export function getOrCreateGuestId(): string {
   return guestId;
 }
 
+export function getActiveNamedUser(): NamedUserAccount | null {
+  const raw = getCookie(NAMED_USER_COOKIE) || localStorage.getItem(NAMED_USER_COOKIE);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.uid && parsed.email) {
+      return parsed as NamedUserAccount;
+    }
+  } catch {}
+  return null;
+}
+
+export function startNamedUserSession(name: string, email: string): NamedUserAccount {
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanName = name.trim() || cleanEmail.split('@')[0] || 'Student';
+  const safeId = cleanEmail.replace(/[^a-z0-9]/g, '_');
+  const account: NamedUserAccount = {
+    uid: `account_${safeId}`,
+    name: cleanName,
+    email: cleanEmail,
+  };
+  const serialized = JSON.stringify(account);
+  setCookie(NAMED_USER_COOKIE, serialized, 30);
+  localStorage.setItem(NAMED_USER_COOKIE, serialized);
+  // Clear anonymous guest session flag when signing into a named account
+  deleteCookie(GUEST_SESSION_COOKIE);
+  localStorage.removeItem(GUEST_SESSION_COOKIE);
+  return account;
+}
+
+export function endNamedUserSession(): void {
+  deleteCookie(NAMED_USER_COOKIE);
+  localStorage.removeItem(NAMED_USER_COOKIE);
+}
+
 export function isGuestSessionActive(): boolean {
   return (
     getCookie(GUEST_SESSION_COOKIE) === 'active' ||
@@ -59,17 +101,20 @@ export interface GuestWorkspaceData {
   tasks: Task[];
 }
 
-export async function loadGuestWorkspace(guestId: string): Promise<GuestWorkspaceData> {
+export async function loadGuestWorkspace(
+  workspaceId: string,
+  defaultName = 'Guest Student'
+): Promise<GuestWorkspaceData> {
   const fallbackProfile: StudentProfile = {
     ...defaultStudentProfile,
-    name: 'Guest Student',
+    name: defaultName,
   };
 
   // 1. Try reading from browser Cache Storage API first
   if (typeof window !== 'undefined' && 'caches' in window) {
     try {
       const cache = await window.caches.open(CACHE_NAME);
-      const cachedRes = await cache.match(`/__guest_workspace__/${guestId}`);
+      const cachedRes = await cache.match(`/__guest_workspace__/${workspaceId}`);
       if (cachedRes) {
         const parsed = await cachedRes.json();
         if (parsed && parsed.profile) {
@@ -87,14 +132,16 @@ export async function loadGuestWorkspace(guestId: string): Promise<GuestWorkspac
 
   // 2. Fallback to localStorage + Cookie profile
   let profile = fallbackProfile;
-  const cookieProfileStr = getCookie(GUEST_PROFILE_COOKIE);
-  if (cookieProfileStr) {
-    try {
-      profile = { ...fallbackProfile, ...JSON.parse(cookieProfileStr) };
-    } catch {}
+  if (workspaceId.startsWith('guest_')) {
+    const cookieProfileStr = getCookie(GUEST_PROFILE_COOKIE);
+    if (cookieProfileStr) {
+      try {
+        profile = { ...fallbackProfile, ...JSON.parse(cookieProfileStr) };
+      } catch {}
+    }
   }
 
-  const rawLocal = localStorage.getItem(`${GUEST_STORAGE_PREFIX}${guestId}`);
+  const rawLocal = localStorage.getItem(`${GUEST_STORAGE_PREFIX}${workspaceId}`);
   if (rawLocal) {
     try {
       const parsed = JSON.parse(rawLocal);
@@ -114,26 +161,28 @@ export async function loadGuestWorkspace(guestId: string): Promise<GuestWorkspac
 }
 
 export async function saveGuestWorkspace(
-  guestId: string,
+  workspaceId: string,
   data: GuestWorkspaceData
 ): Promise<void> {
   const serialized = JSON.stringify(data);
 
-  // 1. Save profile metadata to Cookie
-  setCookie(
-    GUEST_PROFILE_COOKIE,
-    JSON.stringify({
-      name: data.profile.name,
-      branch: data.profile.branch,
-      year: data.profile.year,
-      college: data.profile.college,
-    }),
-    30
-  );
+  // 1. Save profile metadata to Cookie if guest
+  if (workspaceId.startsWith('guest_')) {
+    setCookie(
+      GUEST_PROFILE_COOKIE,
+      JSON.stringify({
+        name: data.profile.name,
+        branch: data.profile.branch,
+        year: data.profile.year,
+        college: data.profile.college,
+      }),
+      30
+    );
+  }
 
   // 2. Save workspace to localStorage
   try {
-    localStorage.setItem(`${GUEST_STORAGE_PREFIX}${guestId}`, serialized);
+    localStorage.setItem(`${GUEST_STORAGE_PREFIX}${workspaceId}`, serialized);
   } catch (err) {
     console.warn('localStorage quota warning:', err);
   }
@@ -145,7 +194,7 @@ export async function saveGuestWorkspace(
       const response = new Response(serialized, {
         headers: { 'Content-Type': 'application/json' },
       });
-      await cache.put(`/__guest_workspace__/${guestId}`, response);
+      await cache.put(`/__guest_workspace__/${workspaceId}`, response);
     } catch {
       // Ignore if Cache API is restricted in private/iframe mode
     }
