@@ -15,6 +15,7 @@ import { NoticeIngestModal } from './components/NoticeIngestModal';
 import { NoticeDetailModal } from './components/NoticeDetailModal';
 import { sampleNotices, sampleTasks, defaultStudentProfile } from './data/initialData';
 import { Notice, Task, StudentProfile, DailyBrief } from './types';
+import { analyzeNoticeWithFallback, generateDailyBriefWithFallback } from './utils/noticeAnalyzer';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
@@ -73,49 +74,31 @@ export default function App() {
     localStorage.setItem('campusos_tasks', JSON.stringify(tasks));
   }, [tasks]);
 
-  // Load Daily Brief
+  // Load Daily Brief (works with server or static GitHub Pages)
   const fetchDailyBrief = async () => {
-    try {
-      const res = await fetch('/api/daily-brief', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          notices,
-          tasks,
-          studentProfile: profile,
-          currentDate: '2026-08-18'
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setDailyBrief(data);
-      }
-    } catch {
-      // Fallback
-    }
+    const brief = await generateDailyBriefWithFallback({
+      notices,
+      tasks,
+      studentProfile: profile,
+      currentDate: '2026-08-18',
+    });
+    setDailyBrief(brief);
   };
 
   useEffect(() => {
     fetchDailyBrief();
   }, [profile.branch, profile.year]);
 
-  // Prioritize notice handler
+  // Prioritize notice handler (works with server or static GitHub Pages)
   const handlePrioritizeNotice = async (text: string, fileData?: { fileName: string, base64?: string }) => {
     setIsProcessingNotice(true);
     try {
-      const res = await fetch('/api/analyze-notice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          noticeText: text,
-          mediaBase64: fileData?.base64,
-          mimeType: 'application/pdf',
-          studentProfile: profile,
-        }),
+      const result = await analyzeNoticeWithFallback({
+        noticeText: text,
+        mediaBase64: fileData?.base64,
+        mimeType: 'application/pdf',
+        studentProfile: profile,
       });
-
-      const data = await res.json();
-      const result = data.result;
 
       const newNotice: Notice = {
         id: `notice-${Date.now()}`,

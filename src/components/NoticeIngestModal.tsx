@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Notice, StudentProfile } from '../types';
 import { extractTextFromPdfFile, fileToBase64, ExtractedPdfData } from '../utils/pdfExtractor';
+import { analyzeNoticeWithFallback } from '../utils/noticeAnalyzer';
 
 interface NoticeIngestModalProps {
   isOpen: boolean;
@@ -73,23 +74,12 @@ export const NoticeIngestModal: React.FC<NoticeIngestModalProps> = ({
     setErrorMessage(null);
 
     try {
-      const res = await fetch('/api/analyze-notice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          noticeText: textToAnalyze,
-          mediaBase64: pdfBase64,
-          mimeType: 'application/pdf',
-          studentProfile: profile,
-        }),
+      const result = await analyzeNoticeWithFallback({
+        noticeText: textToAnalyze,
+        mediaBase64: pdfBase64,
+        mimeType: 'application/pdf',
+        studentProfile: profile,
       });
-
-      if (!res.ok) {
-        throw new Error('Analysis server request failed');
-      }
-
-      const data = await res.json();
-      const result = data.result;
 
       const newNotice: Notice = {
         id: `notice-${Date.now()}`,
