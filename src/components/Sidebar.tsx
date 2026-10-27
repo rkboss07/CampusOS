@@ -8,8 +8,6 @@ import {
   Sun,
   Moon,
   LogOut,
-  LogIn,
-  UserPlus,
   X
 } from 'lucide-react';
 import { StudentProfile } from '../types';
@@ -20,9 +18,7 @@ interface SidebarProps {
   profile: StudentProfile;
   userEmail?: string | null;
   userPhotoUrl?: string | null;
-  isGuestMode?: boolean;
   onOpenProfile: () => void;
-  onOpenSignIn?: () => void;
   onSignOut?: () => void;
   criticalCount: number;
   isDarkMode: boolean;
@@ -37,9 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   profile,
   userEmail,
   userPhotoUrl,
-  isGuestMode = false,
   onOpenProfile,
-  onOpenSignIn,
   onSignOut,
   criticalCount,
   isDarkMode,
@@ -84,76 +78,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         <div>
           {/* User Profile at Top + Mobile Close Button */}
-          <div className="px-1.5 pb-3 mb-3 border-b border-[#EAE5DC] space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <button
-                onClick={() => {
-                  onOpenProfile();
-                  onCloseMobile?.();
-                }}
-                className="flex-1 flex items-center gap-2.5 py-2 px-2 -mx-2 rounded-xl hover:bg-[#ECE7DF] transition-colors cursor-pointer text-left group min-w-0"
-              >
-                {userPhotoUrl ? (
-                  <img
-                    src={userPhotoUrl}
-                    alt={profile.name}
-                    referrerPolicy="no-referrer"
-                    className="w-8 h-8 rounded-full border border-[#E2B2A0] object-cover shrink-0"
-                  />
-                ) : (
-                  <div className="type-caption font-semibold w-8 h-8 rounded-full bg-[#F2C6B6] border border-[#E2B2A0] flex items-center justify-center text-[#5C3428] shadow-2xs shrink-0">
-                    {initials}
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1">
-                    <span className="type-section-title text-[#1C1B18] truncate">
-                      {profile.name}
-                    </span>
-                    <ChevronDown className="w-3.5 h-3.5 text-[#78736A] shrink-0 group-hover:text-[#1C1B18]" />
-                  </div>
-                  <p className="type-caption truncate">
-                    {profile.branch} · {profile.year}
-                  </p>
-                  {userEmail && (
-                    <p className="type-caption truncate opacity-80">
-                      {userEmail}
-                    </p>
-                  )}
+          <div className="px-1.5 pb-4 mb-3 border-b border-[#EAE5DC] flex items-center justify-between gap-2">
+            <button
+              onClick={() => {
+                onOpenProfile();
+                onCloseMobile?.();
+              }}
+              className="flex-1 flex items-center gap-2.5 py-2 px-2 -mx-2 rounded-xl hover:bg-[#ECE7DF] transition-colors cursor-pointer text-left group min-w-0"
+            >
+              {userPhotoUrl ? (
+                <img
+                  src={userPhotoUrl}
+                  alt={profile.name}
+                  referrerPolicy="no-referrer"
+                  className="w-8 h-8 rounded-full border border-[#E2B2A0] object-cover shrink-0"
+                />
+              ) : (
+                <div className="type-caption font-semibold w-8 h-8 rounded-full bg-[#F2C6B6] border border-[#E2B2A0] flex items-center justify-center text-[#5C3428] shadow-2xs shrink-0">
+                  {initials}
                 </div>
-              </button>
-
-              {onCloseMobile && (
-                <button
-                  onClick={onCloseMobile}
-                  className="type-button md:hidden p-1.5 rounded-xl text-[#57534E] hover:text-[#1C1B18] hover:bg-[#EAE4DA] cursor-pointer shrink-0"
-                  aria-label="Close menu"
-                >
-                  <X className="w-4 h-4" />
-                </button>
               )}
-            </div>
-
-            {/* Prominent Sign In / Switch Account Action right below Profile */}
-            {onOpenSignIn && (
-              <button
-                onClick={() => {
-                  onOpenSignIn();
-                  onCloseMobile?.();
-                }}
-                className="type-button w-full py-2 px-3 rounded-xl bg-[#1C1B18] hover:bg-[#33312C] text-white flex items-center justify-center gap-2 shadow-2xs transition-colors cursor-pointer"
-              >
-                {isGuestMode ? (
-                  <>
-                    <LogIn className="w-3.5 h-3.5 text-[#F97316]" />
-                    <span>Sign In / Switch User</span>
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="w-3.5 h-3.5 text-[#F97316]" />
-                    <span>Switch Account</span>
-                  </>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1">
+                  <span className="type-section-title text-[#1C1B18] truncate">
+                    {profile.name}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-[#78736A] shrink-0 group-hover:text-[#1C1B18]" />
+                </div>
+                <p className="type-caption truncate">
+                  {profile.branch} · {profile.year}
+                </p>
+                {userEmail && (
+                  <p className="type-caption truncate opacity-80">
+                    {userEmail}
+                  </p>
                 )}
+              </div>
+            </button>
+
+            {onCloseMobile && (
+              <button
+                onClick={onCloseMobile}
+                className="type-button md:hidden p-1.5 rounded-xl text-[#57534E] hover:text-[#1C1B18] hover:bg-[#EAE4DA] cursor-pointer shrink-0"
+                aria-label="Close menu"
+              >
+                <X className="w-4 h-4" />
               </button>
             )}
           </div>
@@ -196,7 +165,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </nav>
         </div>
 
-        {/* Theme Toggle & Account Switch/Sign Out at Bottom of Sidebar */}
+        {/* Theme Toggle & Sign Out / Switch User at Bottom of Sidebar */}
         <div className="pt-3 border-t border-[#EAE5DC] space-y-2">
           <button
             onClick={onToggleDarkMode}
@@ -229,21 +198,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="type-button w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-[#FAF8F5] hover:bg-[#FEF2F2] border border-[#EAE5DC] text-[#57534E] hover:text-[#EF4444] transition-colors cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                {isGuestMode ? (
-                  <>
-                    <LogIn className="w-4 h-4 text-[#F97316]" />
-                    <span>Sign In Page</span>
-                  </>
-                ) : (
-                  <>
-                    <LogOut className="w-4 h-4" />
-                    <span>Sign Out</span>
-                  </>
-                )}
+                <LogOut className="w-4 h-4" />
+                <span>Sign Out</span>
               </span>
-              <span className="type-caption">
-                {isGuestMode ? 'Google / Email' : 'Switch User'}
-              </span>
+              <span className="type-caption">Switch User</span>
             </button>
           )}
         </div>

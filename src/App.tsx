@@ -1,10 +1,10 @@
 /**
  * @license
- * SPDX-License-Identifier: Apache-2.0
+ * @license SPDX-License-Identifier: Apache-2.0
  */
 
 import React, { useState, useEffect } from 'react';
-import { Menu, LogIn, LogOut, UserCheck, ShieldCheck } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
@@ -23,10 +23,6 @@ import {
   startGuestSession,
   endGuestSession,
   getOrCreateGuestId,
-  getActiveNamedUser,
-  startNamedUserSession,
-  endNamedUserSession,
-  NamedUserAccount,
   loadGuestWorkspace,
   saveGuestWorkspace,
 } from './utils/guestStorage';
@@ -48,17 +44,9 @@ import {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [namedUser, setNamedUser] = useState<NamedUserAccount | null>(() => getActiveNamedUser());
   const [isGuestMode, setIsGuestMode] = useState<boolean>(() => isGuestSessionActive());
   const [guestId, setGuestId] = useState<string>(() => getOrCreateGuestId());
   const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
-  const [showSignInScreen, setShowSignInScreen] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return (
-      window.location.search.includes('signin=1') ||
-      window.location.hash.includes('signin')
-    );
-  });
 
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
@@ -104,12 +92,9 @@ export default function App() {
       }
 
       if (user) {
-        // Authenticated with Google: exit guest/named mode and load Firestore workspace
+        // Authenticated with Google: exit guest mode and load Firestore workspace
         endGuestSession();
-        endNamedUserSession();
-        setNamedUser(null);
         setIsGuestMode(false);
-        setShowSignInScreen(false);
         setCurrentUser(user);
         setNotices([]);
         setTasks([]);
@@ -141,29 +126,19 @@ export default function App() {
         return;
       }
 
-      // Not signed in with Google: check if a Named Email Account or Guest session is active
+      // Not signed in with Google: check if a Guest session is active
       setCurrentUser(null);
-      const savedNamedAccount = getActiveNamedUser();
-      if (savedNamedAccount) {
-        setNamedUser(savedNamedAccount);
-        setIsGuestMode(false);
-        const userData = await loadGuestWorkspace(savedNamedAccount.uid, savedNamedAccount.name);
-        setProfile(userData.profile);
-        setNotices(userData.notices);
-        setTasks(userData.tasks);
-        setLatestProcessedNotice(userData.notices[0] || null);
-      } else if (isGuestSessionActive()) {
+      if (isGuestSessionActive()) {
         const activeGuestId = getOrCreateGuestId();
         setGuestId(activeGuestId);
         setIsGuestMode(true);
-        const guestData = await loadGuestWorkspace(activeGuestId, 'Guest Student');
+        const guestData = await loadGuestWorkspace(activeGuestId);
         setProfile(guestData.profile);
         setNotices(guestData.notices);
         setTasks(guestData.tasks);
         setLatestProcessedNotice(guestData.notices[0] || null);
       } else {
         setIsGuestMode(false);
-        setNamedUser(null);
         setNotices([]);
         setTasks([]);
         setLatestProcessedNotice(null);
@@ -180,24 +155,16 @@ export default function App() {
     };
   }, []);
 
-  // Persist workspace to browser Cache Storage, LocalStorage, and Cookies whenever local account/guest data changes
-  const activeLocalWorkspaceId = !currentUser
-    ? namedUser
-      ? namedUser.uid
-      : isGuestMode
-      ? guestId
-      : null
-    : null;
-
+  // Persist guest workspace to browser Cache Storage, LocalStorage, and Cookies whenever guest data changes
   useEffect(() => {
-    if (!isAuthReady || !activeLocalWorkspaceId) return;
-    saveGuestWorkspace(activeLocalWorkspaceId, { profile, notices, tasks });
-  }, [isAuthReady, activeLocalWorkspaceId, profile, notices, tasks]);
+    if (!isAuthReady || !isGuestMode || currentUser) return;
+    saveGuestWorkspace(guestId, { profile, notices, tasks });
+  }, [isAuthReady, isGuestMode, currentUser, guestId, profile, notices, tasks]);
 
   // Recompute daily brief when notices or profile change
   useEffect(() => {
     let isMounted = true;
-    if (!currentUser && !namedUser && !isGuestMode) return;
+    if (!currentUser && !isGuestMode) return;
 
     generateDailyBriefWithFallback(notices, profile).then((brief) => {
       if (isMounted) setDailyBrief(brief);
@@ -205,7 +172,7 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, [notices, profile, currentUser, namedUser, isGuestMode]);
+  }, [notices, profile, currentUser, isGuestMode]);
 
   // Quick prioritize from dashboard hero input or file upload
   const handlePrioritizeNotice = async (
@@ -213,7 +180,7 @@ export default function App() {
     fileData?: { fileName: string; base64?: string }
   ) => {
     if (!rawText.trim() && !fileData?.base64) return;
-    if (!currentUser && !namedUser && !isGuestMode) return;
+    if (!currentUser && !isGuestMode) return;
     setIsProcessingNotice(true);
     try {
       const analyzed = await analyzeNoticeWithFallback(rawText, profile, fileData);
@@ -399,51 +366,27 @@ export default function App() {
 
   const handleSignIn = async () => {
     await signInWithGoogle();
-    setShowSignInScreen(false);
-  };
-
-  const handleEmailSignIn = async (name: string, email: string) => {
-    if (currentUser) {
-      await signOutUser();
-    }
-    const account = startNamedUserSession(name, email);
-    setNamedUser(account);
-    setIsGuestMode(false);
-    const userData = await loadGuestWorkspace(account.uid, account.name);
-    setProfile(userData.profile);
-    setNotices(userData.notices);
-    setTasks(userData.tasks);
-    setLatestProcessedNotice(userData.notices[0] || null);
-    setSelectedNotice(null);
-    setShowSignInScreen(false);
   };
 
   const handleGuestSignIn = async () => {
     if (currentUser) {
       await signOutUser();
     }
-    endNamedUserSession();
-    setNamedUser(null);
     const id = startGuestSession();
     setGuestId(id);
-    const guestData = await loadGuestWorkspace(id, 'Guest Student');
+    const guestData = await loadGuestWorkspace(id);
     setProfile(guestData.profile);
     setNotices(guestData.notices);
     setTasks(guestData.tasks);
     setLatestProcessedNotice(guestData.notices[0] || null);
     setSelectedNotice(null);
     setIsGuestMode(true);
-    setShowSignInScreen(false);
   };
 
   const handleSignOut = async () => {
     if (isGuestMode) {
       endGuestSession();
       setIsGuestMode(false);
-    }
-    if (namedUser) {
-      endNamedUserSession();
-      setNamedUser(null);
     }
     setNotices([]);
     setTasks([]);
@@ -452,7 +395,6 @@ export default function App() {
     if (currentUser) {
       await signOutUser();
     }
-    setShowSignInScreen(true);
   };
 
   if (!isAuthReady) {
@@ -469,15 +411,11 @@ export default function App() {
     );
   }
 
-  const hasActiveSession = Boolean(currentUser || namedUser || isGuestMode);
-
-  if (!hasActiveSession || showSignInScreen) {
+  if (!currentUser && !isGuestMode) {
     return (
       <SignInView
         onSignIn={handleSignIn}
-        onEmailSignIn={handleEmailSignIn}
         onGuestSignIn={handleGuestSignIn}
-        onCancel={hasActiveSession ? () => setShowSignInScreen(false) : undefined}
         isDarkMode={isDarkMode}
         onToggleDarkMode={() => setIsDarkMode((prev) => !prev)}
       />
@@ -487,12 +425,6 @@ export default function App() {
   const criticalCount = notices.filter(
     (n) => n.priorityLevel === 'Critical' && n.status !== 'completed'
   ).length;
-
-  const activeUserEmail = currentUser
-    ? currentUser.email
-    : namedUser
-    ? namedUser.email
-    : 'Guest Session (Local Cache & Cookies)';
 
   return (
     <div
@@ -506,11 +438,9 @@ export default function App() {
           currentTab={currentTab}
           setCurrentTab={setCurrentTab}
           profile={profile}
-          userEmail={activeUserEmail}
+          userEmail={currentUser ? currentUser.email : 'Guest Session (Local Cache)'}
           userPhotoUrl={currentUser?.photoURL}
-          isGuestMode={isGuestMode && !currentUser && !namedUser}
           onOpenProfile={() => setIsProfileModalOpen(true)}
-          onOpenSignIn={() => setShowSignInScreen(true)}
           onSignOut={handleSignOut}
           criticalCount={criticalCount}
           isDarkMode={isDarkMode}
@@ -521,65 +451,16 @@ export default function App() {
 
         {/* Main Content Viewport */}
         <main className="flex-1 bg-white sm:rounded-2xl sm:my-2 sm:mr-2 border-l sm:border border-[#EAE5DC] overflow-y-auto px-4 sm:px-9 py-5 sm:py-6 transition-colors min-w-0">
-          {/* Top Account & Navigation Bar (Visible on all screens so Sign In / Account Switch is always accessible) */}
-          <div className="flex items-center justify-between gap-3 pb-4 mb-5 border-b border-[#EAE5DC]">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <button
-                onClick={() => setIsMobileSidebarOpen(true)}
-                className="type-button md:hidden inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#F6F3EC] border border-[#EAE5DC] text-[#1C1B18] cursor-pointer shrink-0"
-                aria-label="Open navigation menu"
-              >
-                <Menu className="w-4 h-4 text-[#F97316]" />
-                <span>Menu</span>
-              </button>
-
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="type-caption font-semibold inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#FAF8F5] border border-[#EAE5DC] text-[#57534E] truncate">
-                  {currentUser || namedUser ? (
-                    <>
-                      <ShieldCheck className="w-3.5 h-3.5 text-[#10B981] shrink-0" />
-                      <span className="truncate">
-                        {currentUser?.email || namedUser?.email}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <UserCheck className="w-3.5 h-3.5 text-[#F97316] shrink-0" />
-                      <span>Guest Mode (Local Cache)</span>
-                    </>
-                  )}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              {isGuestMode && !currentUser && !namedUser ? (
-                <button
-                  onClick={() => setShowSignInScreen(true)}
-                  className="type-button px-3.5 py-2 rounded-xl bg-[#1C1B18] hover:bg-[#33312C] text-white inline-flex items-center gap-2 shadow-2xs transition-colors cursor-pointer"
-                >
-                  <LogIn className="w-3.5 h-3.5 text-[#F97316]" />
-                  <span>Sign In</span>
-                </button>
-              ) : (
-                <>
-                  <button
-                    onClick={() => setShowSignInScreen(true)}
-                    className="type-button px-3 py-1.5 rounded-xl bg-[#F6F3EC] hover:bg-[#ECE7DF] border border-[#EAE5DC] text-[#1C1B18] inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <LogIn className="w-3.5 h-3.5 text-[#F97316]" />
-                    <span>Switch Account</span>
-                  </button>
-                  <button
-                    onClick={handleSignOut}
-                    className="type-button px-3 py-1.5 rounded-xl bg-[#FAF8F5] hover:bg-[#FEF2F2] border border-[#EAE5DC] text-[#57534E] hover:text-[#EF4444] inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Sign Out</span>
-                  </button>
-                </>
-              )}
-            </div>
+          {/* Mobile Top Bar for Sidebar Toggle */}
+          <div className="flex items-center justify-between md:hidden pb-4 mb-4 border-b border-[#EAE5DC]">
+            <button
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="type-button inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#F6F3EC] border border-[#EAE5DC] text-[#1C1B18] cursor-pointer"
+              aria-label="Open navigation menu"
+            >
+              <Menu className="w-4 h-4 text-[#F97316]" />
+              <span>Menu</span>
+            </button>
           </div>
 
           {currentTab === 'dashboard' && (
