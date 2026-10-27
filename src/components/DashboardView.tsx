@@ -12,7 +12,9 @@ import {
   Flag,
   Trash2,
   RotateCcw,
-  Inbox
+  Inbox,
+  Pencil,
+  GripVertical
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Notice, StudentProfile, Task, DailyBrief } from '../types';
@@ -32,6 +34,8 @@ interface DashboardViewProps {
   isProcessingNotice: boolean;
   latestProcessedNotice: Notice | null;
   onSelectNotice: (notice: Notice) => void;
+  onEditNotice?: (notice: Notice) => void;
+  onUpdateNoticeDeadline?: (noticeId: string, newDeadline: string) => void;
   onOpenIngestModal: () => void;
   onOpenProfileModal?: () => void;
   isDarkMode?: boolean;
@@ -47,6 +51,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   isProcessingNotice,
   latestProcessedNotice,
   onSelectNotice,
+  onEditNotice,
+  onUpdateNoticeDeadline,
   onOpenIngestModal,
   isDarkMode,
 }) => {
@@ -56,6 +62,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [inputText, setInputText] = useState('');
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [selectedFileBase64, setSelectedFileBase64] = useState<string | undefined>(undefined);
+  const [draggedNoticeId, setDraggedNoticeId] = useState<string | null>(null);
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null);
 
   const augustDays = getMonthDays(2026, 7);
 
@@ -180,7 +188,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         className="bg-white rounded-2xl p-4 space-y-3 transition-all cursor-pointer flex flex-col justify-between border border-[#EAE5DC] hover:border-[#FDBA74] shadow-[0_2px_6px_rgba(28,27,24,0.03)] hover:shadow-[0_6px_18px_rgba(249,115,22,0.08)]"
       >
         <div className="space-y-2.5">
-          {/* Top Row: Check Circle + Delete */}
+          {/* Top Row: Check Circle + Edit + Delete */}
           <div className="flex items-center justify-between">
             <button
               onClick={(e) => handleCardCheck(e, notice)}
@@ -194,13 +202,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {isDone && <Check className="w-3 h-3" strokeWidth={3} />}
             </button>
 
-            <button
-              onClick={(e) => handleDelete(e, notice.id)}
-              className="p-1 rounded-lg text-[#8C867B] hover:text-[#EF4444] hover:bg-[#FEF2F2] transition-colors cursor-pointer"
-              title="Delete notice"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditNotice ? onEditNotice(notice) : onSelectNotice(notice);
+                }}
+                className="p-1 rounded-lg text-[#8C867B] hover:text-[#1C1B18] hover:bg-[#F6F3EC] transition-colors cursor-pointer"
+                title="Edit notice & deadline"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={(e) => handleDelete(e, notice.id)}
+                className="p-1 rounded-lg text-[#8C867B] hover:text-[#EF4444] hover:bg-[#FEF2F2] transition-colors cursor-pointer"
+                title="Delete notice"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           {/* 1. Heading */}
@@ -237,7 +257,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {renderFlagChip(notice.priorityLevel)}
           </div>
 
-          {/* 4. Mark as Done & Delete Buttons */}
+          {/* 4. Mark as Done, Edit & Delete Buttons */}
           <div className="flex items-center gap-1.5 pt-1 border-t border-[#F2EFE9]">
             <button
               onClick={(e) => handleCardCheck(e, notice)}
@@ -261,11 +281,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </button>
 
             <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditNotice ? onEditNotice(notice) : onSelectNotice(notice);
+              }}
+              className="type-button py-1.5 px-2.5 rounded-xl bg-[#FAF8F5] hover:bg-[#F6F3EC] text-[#57534E] hover:text-[#1C1B18] border border-[#EAE5DC] flex items-center gap-1 transition-colors cursor-pointer"
+            >
+              <Pencil className="w-3 h-3" />
+              <span>Edit</span>
+            </button>
+
+            <button
               onClick={(e) => handleDelete(e, notice.id)}
               className="type-button py-1.5 px-2.5 rounded-xl bg-[#FAF8F5] hover:bg-[#FEF2F2] text-[#78736A] hover:text-[#EF4444] border border-[#EAE5DC] flex items-center gap-1 transition-colors cursor-pointer"
             >
               <Trash2 className="w-3 h-3" />
-              <span>Delete</span>
             </button>
           </div>
         </div>
@@ -669,7 +699,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 August 2026 Academic Schedule
               </h2>
               <p className="type-caption">
-                Click any highlighted date to inspect the corresponding circular and priority breakdown.
+                Drag any notice from one date to another to change its deadline and recalculate its priority score.
               </p>
             </div>
             <button
@@ -687,30 +717,83 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             ))}
             {augustDays.slice(0, 35).map((item, i) => {
-              const matchedNotice = notices.find(
-                (n) => n.deadline === item.dateString || n.eventDate === item.dateString
+              const matchedNotices = notices.filter(
+                (n) =>
+                  n.deadline === item.dateString ||
+                  (!n.deadline && n.eventDate === item.dateString)
               );
+              const isDropTarget = dragOverDate === item.dateString;
 
               return (
                 <div
                   key={i}
-                  onClick={() => {
-                    if (matchedNotice) onSelectNotice(matchedNotice);
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverDate !== item.dateString) {
+                      setDragOverDate(item.dateString);
+                    }
                   }}
-                  className={`type-caption h-16 rounded-xl p-2 border flex flex-col justify-between text-left transition-all ${
-                    !item.isCurrentMonth
+                  onDragLeave={() => {
+                    if (dragOverDate === item.dateString) {
+                      setDragOverDate(null);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const noticeId = e.dataTransfer.getData('text/plain') || draggedNoticeId;
+                    setDraggedNoticeId(null);
+                    setDragOverDate(null);
+                    if (noticeId) {
+                      onUpdateNoticeDeadline?.(noticeId, item.dateString);
+                    }
+                  }}
+                  onClick={() => {
+                    if (matchedNotices.length > 0) onSelectNotice(matchedNotices[0]);
+                  }}
+                  className={`type-caption min-h-[72px] rounded-xl p-2 border flex flex-col justify-between text-left transition-all ${
+                    isDropTarget
+                      ? 'border-2 border-dashed border-[#F97316] bg-[#FFF0E5] scale-[1.02]'
+                      : !item.isCurrentMonth
                       ? 'opacity-35 border-transparent bg-transparent text-[#9A948A]'
-                      : matchedNotice
+                      : matchedNotices.length > 0
                       ? 'bg-[#FFF7ED] border-[#F97316] text-[#9A3412] font-semibold cursor-pointer'
                       : 'border-[#EAE5DC] bg-white text-[#2C2A26]'
                   }`}
                 >
-                  <span className="tabular-nums">{item.day}</span>
-                  {matchedNotice && (
-                    <span className="type-caption bg-[#F97316] text-white px-1.5 py-0.5 rounded font-semibold truncate">
-                      {matchedNotice.category}
-                    </span>
-                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="tabular-nums">{item.day}</span>
+                    {matchedNotices.length > 0 && (
+                      <span className="tabular-nums text-[#EA580C]">
+                        {matchedNotices[0].priorityScore}
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-1 mt-1">
+                    {matchedNotices.map((matchedNotice) => (
+                      <div
+                        key={matchedNotice.id}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', matchedNotice.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDraggedNoticeId(matchedNotice.id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedNoticeId(null);
+                          setDragOverDate(null);
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectNotice(matchedNotice);
+                        }}
+                        className="type-caption bg-[#F97316] text-white px-1.5 py-0.5 rounded font-semibold truncate flex items-center gap-1 cursor-grab active:cursor-grabbing"
+                      >
+                        <GripVertical className="w-2.5 h-2.5 shrink-0 opacity-80" />
+                        <span className="truncate">{matchedNotice.title}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               );
             })}

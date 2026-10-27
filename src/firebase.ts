@@ -295,6 +295,18 @@ export async function updateNoticeStatusInDb(
   }
 }
 
+export async function updateNoticeInDb(uid: string, notice: Notice): Promise<void> {
+  const path = `users/${uid}/notices/${notice.id}`;
+  const noticeRef = doc(db, 'users', uid, 'notices', notice.id);
+  try {
+    const snap = await getDoc(noticeRef);
+    const existingCreatedAt = snap.exists() ? snap.data().createdAt : serverTimestamp();
+    await setDoc(noticeRef, buildValidNoticePayload(uid, notice, existingCreatedAt));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
 export async function deleteNoticeFromDb(uid: string, noticeId: string): Promise<void> {
   const path = `users/${uid}/notices/${noticeId}`;
   const noticeRef = doc(db, 'users', uid, 'notices', noticeId);
@@ -351,6 +363,37 @@ export async function updateTaskCompletedInDb(
     await setDoc(taskRef, {
       ...data,
       completed: Boolean(completed),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updateTaskInDb(uid: string, task: Task): Promise<void> {
+  const path = `users/${uid}/tasks/${task.id}`;
+  const taskRef = doc(db, 'users', uid, 'tasks', task.id);
+  const validPriorities = ['Critical', 'High', 'Medium', 'Low'];
+  const validCategories = [
+    'Examination',
+    'Assignment',
+    'Fee',
+    'Scholarship',
+    'Placement',
+    'Workshop / Event',
+    'General',
+  ];
+  try {
+    const snap = await getDoc(taskRef);
+    if (!snap.exists()) return;
+    const data = snap.data();
+    await setDoc(taskRef, {
+      ...data,
+      title: clampStr(task.title, 300, 'Academic Task'),
+      dueDate: clampStr(task.dueDate, 40, '2026-08-18'),
+      priority: validPriorities.includes(task.priority) ? task.priority : 'High',
+      category: validCategories.includes(task.category) ? task.category : 'General',
+      completed: Boolean(task.completed),
       updatedAt: serverTimestamp(),
     });
   } catch (error) {

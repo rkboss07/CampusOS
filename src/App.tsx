@@ -1,6 +1,6 @@
 /**
  * @license
- * @license SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 import React, { useState, useEffect } from 'react';
@@ -17,7 +17,11 @@ import { NoticeDetailModal } from './components/NoticeDetailModal';
 import { SignInView } from './components/SignInView';
 import { defaultStudentProfile } from './data/initialData';
 import { Notice, Task, StudentProfile, DailyBrief } from './types';
-import { analyzeNoticeWithFallback, generateDailyBriefWithFallback } from './utils/noticeAnalyzer';
+import {
+  analyzeNoticeWithFallback,
+  generateDailyBriefWithFallback,
+  recalculateNoticePriority,
+} from './utils/noticeAnalyzer';
 import {
   isGuestSessionActive,
   startGuestSession,
@@ -33,9 +37,11 @@ import {
   ensureUserProfile,
   updateUserProfileInDb,
   createNoticeInDb,
+  updateNoticeInDb,
   updateNoticeStatusInDb,
   deleteNoticeFromDb,
   createTaskInDb,
+  updateTaskInDb,
   updateTaskCompletedInDb,
   deleteTaskFromDb,
   subscribeToUserNotices,
@@ -56,6 +62,7 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isIngestModalOpen, setIsIngestModalOpen] = useState<boolean>(false);
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
+  const [openNoticeInEditMode, setOpenNoticeInEditMode] = useState<boolean>(false);
   const [isProcessingNotice, setIsProcessingNotice] = useState<boolean>(false);
 
   // Per-user state (starts completely empty with zero entries for each new user or new guest)
@@ -166,13 +173,18 @@ export default function App() {
     let isMounted = true;
     if (!currentUser && !isGuestMode) return;
 
-    generateDailyBriefWithFallback(notices, profile).then((brief) => {
+    generateDailyBriefWithFallback({
+      notices,
+      tasks,
+      studentProfile: profile,
+      currentDate: new Date().toISOString().split('T')[0],
+    }).then((brief) => {
       if (isMounted) setDailyBrief(brief);
     });
     return () => {
       isMounted = false;
     };
-  }, [notices, profile, currentUser, isGuestMode]);
+  }, [notices, tasks, profile, currentUser, isGuestMode]);
 
   // Quick prioritize from dashboard hero input or file upload
   const handlePrioritizeNotice = async (
@@ -183,35 +195,55 @@ export default function App() {
     if (!currentUser && !isGuestMode) return;
     setIsProcessingNotice(true);
     try {
-      const analyzed = await analyzeNoticeWithFallback(rawText, profile, fileData);
+      const analyzed = await analyzeNoticeWithFallback({
+        noticeText: rawText,
+        mediaBase64: fileData?.base64 || null,
+        mimeType: 'application/pdf',
+        studentProfile: profile,
+      });
+
       const noticeId = `notice-${Date.now()}`;
       const newNotice: Notice = {
         id: noticeId,
-        title: analyzed.title,
-        rawText: rawText || `Uploaded PDF: ${fileData?.fileName || 'Document'}`,
-        summary: analyzed.summary,
-        category: analyzed.category,
-        priorityScore: analyzed.priorityScore,
-        priorityLevel: analyzed.priorityLevel,
-        deadline: analyzed.deadline,
-        requiredAction: analyzed.requiredAction,
-        targetBranches: analyzed.targetBranches,
-        targetYears: analyzed.targetYears,
-        sender: fileData?.fileName ? `PDF (${fileData.fileName})` : 'Quick Drop Input',
-        receivedAt: new Date().toISOString().split('T')[0],
-        aiReasoning: analyzed.aiReasoning,
-        scoreBreakdown: analyzed.scoreBreakdown,
+        title: analyzed.title || 'Official Academic Notice',
+        rawContent: rawText || `Uploaded PDF: ${fileData?.fileName || 'Document'}`,
+        category: analyzed.category || 'General',
+        targetAudience: analyzed.targetAudience || 'All Enrolled Students',
+        targetBranch: analyzed.targetBranch || profile.branch,
+        targetYear: analyzed.targetYear || profile.year,
+        deadline: analyzed.deadline || '2026-08-18',
+        deadlineTime: analyzed.deadlineTime || '5:00 PM',
+        eventDate: analyzed.eventDate || analyzed.deadline || null,
+        eventTime: analyzed.eventTime || null,
+        venue: analyzed.venue || 'College Campus',
+        requiredAction: analyzed.requiredAction || 'Review circular details',
+        actionType: analyzed.actionType || 'portal_action',
+        portalUrl: analyzed.portalUrl || null,
+        importance: analyzed.importance ?? 90,
+        urgency: analyzed.urgency ?? 85,
+        studentRelevance: analyzed.studentRelevance ?? 92,
+        priorityScore: analyzed.priorityScore ?? 89,
+        priorityLevel: analyzed.priorityLevel || 'Critical',
+        priorityReason:
+          analyzed.priorityReason ||
+          'Calculated from deadline proximity and student profile alignment.',
+        summary: analyzed.summary || rawText.slice(0, 150),
+        keyPoints: analyzed.keyPoints || [],
+        consequencesOfMissing:
+          analyzed.consequencesOfMissing || 'Administrative penalty or late fine.',
         status: 'active',
-        attachmentName: fileData?.fileName,
+        createdAt: new Date().toISOString(),
+        source: fileData?.fileName ? 'pdf' : 'text',
+        sourceFileName: fileData?.fileName || 'Quick_Circular_Notice.pdf',
       };
 
       const newTask: Task = {
         id: `task-${Date.now()}`,
         noticeId: newNotice.id,
-        title: analyzed.requiredAction,
-        dueDate: analyzed.deadline || '2026-08-18',
-        priority: analyzed.priorityLevel,
-        category: analyzed.category,
+        title: newNotice.requiredAction,
+        dueDate: newNotice.deadline || '2026-08-18',
+        priority: newNotice.priorityLevel,
+        category: newNotice.category,
         completed: false,
         estimatedMinutes: 20,
       };
@@ -220,15 +252,78 @@ export default function App() {
         await createNoticeInDb(currentUser.uid, newNotice);
         await createTaskInDb(currentUser.uid, newTask);
       } else {
-        setNotices((prev) => [newNotice, ...prev]);
+        setNotices((prev) =>
+          [newNotice, ...prev].sort((a, b) => b.priorityScore - a.priorityScore)
+        );
         setTasks((prev) => [newTask, ...prev]);
       }
 
       setLatestProcessedNotice(newNotice);
+      setOpenNoticeInEditMode(false);
       setSelectedNotice(newNotice);
     } finally {
       setIsProcessingNotice(false);
     }
+  };
+
+  // Update any notice fields (from full Notice Editor or inline/calendar deadline changes)
+  // Always recalculates Priority Score, Urgency, Importance, Student Relevance, and syncs linked Task
+  const handleUpdateNotice = async (updatedInput: Notice) => {
+    const recalculated = recalculateNoticePriority(updatedInput, profile);
+
+    const linkedTask = tasks.find((t) => t.noticeId === recalculated.id);
+    const updatedTask: Task | null = linkedTask
+      ? {
+          ...linkedTask,
+          title: recalculated.requiredAction,
+          dueDate: recalculated.deadline || '2026-08-18',
+          priority: recalculated.priorityLevel,
+          category: recalculated.category,
+        }
+      : null;
+
+    if (currentUser) {
+      await updateNoticeInDb(currentUser.uid, recalculated);
+      if (updatedTask) {
+        await updateTaskInDb(currentUser.uid, updatedTask);
+      }
+    } else {
+      setNotices((prev) =>
+        prev
+          .map((n) => (n.id === recalculated.id ? recalculated : n))
+          .sort((a, b) => b.priorityScore - a.priorityScore)
+      );
+      if (updatedTask) {
+        setTasks((prev) =>
+          prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
+        );
+      }
+    }
+
+    setSelectedNotice((prev) => (prev?.id === recalculated.id ? recalculated : prev));
+    setLatestProcessedNotice((prev) =>
+      prev?.id === recalculated.id ? recalculated : prev
+    );
+  };
+
+  // Drag-and-drop or inline deadline update on the Calendar
+  const handleUpdateNoticeDeadline = async (noticeId: string, newDeadline: string) => {
+    const target = notices.find((n) => n.id === noticeId);
+    if (!target || !newDeadline) return;
+
+    const updatedDraft: Notice = {
+      ...target,
+      deadline: newDeadline,
+      eventDate:
+        target.category === 'Workshop / Event' ? newDeadline : target.eventDate,
+      keyPoints: (target.keyPoints || []).map((kp) =>
+        kp.startsWith('Deadline:')
+          ? `Deadline: ${newDeadline} (${target.deadlineTime || '5:00 PM'})`
+          : kp
+      ),
+    };
+
+    await handleUpdateNotice(updatedDraft);
   };
 
   // Toggle task completion (syncs back to notice status)
@@ -356,11 +451,20 @@ export default function App() {
     setSelectedNotice(null);
   };
 
-  // Profile update
+  // Profile update: also recalculates priority scores for all notices against new profile
   const handleProfileSave = async (updated: StudentProfile) => {
     setProfile(updated);
+    const recalculatedNotices = notices
+      .map((n) => recalculateNoticePriority(n, updated))
+      .sort((a, b) => b.priorityScore - a.priorityScore);
+
     if (currentUser) {
       await updateUserProfileInDb(currentUser.uid, updated);
+      for (const n of recalculatedNotices) {
+        await updateNoticeInDb(currentUser.uid, n);
+      }
+    } else {
+      setNotices(recalculatedNotices);
     }
   };
 
@@ -476,7 +580,15 @@ export default function App() {
               onPrioritizeNotice={handlePrioritizeNotice}
               isProcessingNotice={isProcessingNotice}
               latestProcessedNotice={latestProcessedNotice}
-              onSelectNotice={(n) => setSelectedNotice(n)}
+              onSelectNotice={(n) => {
+                setOpenNoticeInEditMode(false);
+                setSelectedNotice(n);
+              }}
+              onEditNotice={(n) => {
+                setOpenNoticeInEditMode(true);
+                setSelectedNotice(n);
+              }}
+              onUpdateNoticeDeadline={handleUpdateNoticeDeadline}
               onOpenIngestModal={() => setIsIngestModalOpen(true)}
               onOpenProfileModal={() => setIsProfileModalOpen(true)}
               isDarkMode={isDarkMode}
@@ -487,7 +599,14 @@ export default function App() {
           {currentTab === 'notices' && (
             <NoticesView
               notices={notices}
-              onSelectNotice={(n) => setSelectedNotice(n)}
+              onSelectNotice={(n) => {
+                setOpenNoticeInEditMode(false);
+                setSelectedNotice(n);
+              }}
+              onEditNotice={(n) => {
+                setOpenNoticeInEditMode(true);
+                setSelectedNotice(n);
+              }}
               onToggleStatus={handleToggleNoticeStatus}
               onDeleteNotice={handleDeleteNotice}
               onOpenIngestModal={() => setIsIngestModalOpen(true)}
@@ -497,7 +616,15 @@ export default function App() {
           {currentTab === 'calendar' && (
             <CalendarView
               notices={notices}
-              onSelectNotice={(n) => setSelectedNotice(n)}
+              onSelectNotice={(n) => {
+                setOpenNoticeInEditMode(false);
+                setSelectedNotice(n);
+              }}
+              onEditNotice={(n) => {
+                setOpenNoticeInEditMode(true);
+                setSelectedNotice(n);
+              }}
+              onUpdateNoticeDeadline={handleUpdateNoticeDeadline}
               onOpenIngestModal={() => setIsIngestModalOpen(true)}
             />
           )}
@@ -533,22 +660,30 @@ export default function App() {
             await createNoticeInDb(currentUser.uid, notice);
             await createTaskInDb(currentUser.uid, linkedTask);
           } else {
-            setNotices((prev) => [notice, ...prev]);
+            setNotices((prev) =>
+              [notice, ...prev].sort((a, b) => b.priorityScore - a.priorityScore)
+            );
             setTasks((prev) => [linkedTask, ...prev]);
           }
           setLatestProcessedNotice(notice);
+          setOpenNoticeInEditMode(false);
           setSelectedNotice(notice);
         }}
         profile={profile}
       />
 
-      {/* Modal: Notice Detailed Inspector with AI Score Breakdown */}
+      {/* Modal: Notice Detailed Inspector & Full Notice Editor with Live Priority Recalculation */}
       <NoticeDetailModal
         notice={selectedNotice}
         profile={profile}
-        onClose={() => setSelectedNotice(null)}
+        initialEditMode={openNoticeInEditMode}
+        onClose={() => {
+          setSelectedNotice(null);
+          setOpenNoticeInEditMode(false);
+        }}
         onToggleStatus={handleToggleNoticeStatus}
         onAddCalendarTask={handleAddCalendarTask}
+        onUpdateNotice={handleUpdateNotice}
         onDeleteNotice={handleDeleteNotice}
       />
 

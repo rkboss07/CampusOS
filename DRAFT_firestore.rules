@@ -169,8 +169,21 @@ service cloud.firestore {
           incoming().id == existing().id &&
           incoming().ownerId == existing().ownerId &&
           incoming().createdAt == existing().createdAt &&
+          incoming().source == existing().source &&
+          incoming().sourceFileName == existing().sourceFileName &&
           incoming().updatedAt == request.time &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+          (
+            // Action 1: Toggle status
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) ||
+            // Action 2: Edit notice details, deadline, and recalculated priority metrics
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'rawContent', 'category', 'targetAudience',
+              'targetBranch', 'targetYear', 'deadline', 'deadlineTime', 'venue',
+              'requiredAction', 'actionType', 'importance', 'urgency', 'studentRelevance',
+              'priorityScore', 'priorityLevel', 'priorityReason', 'summary', 'keyPoints',
+              'consequencesOfMissing', 'status', 'updatedAt'
+            ])
+          ) &&
           hasValidParentUser(userId);
 
         allow delete: if isOwner(userId) &&
@@ -205,9 +218,15 @@ service cloud.firestore {
           isValidTaskDocument(incoming(), userId, taskId) &&
           incoming().id == existing().id &&
           incoming().ownerId == existing().ownerId &&
+          incoming().noticeId == existing().noticeId &&
           incoming().createdAt == existing().createdAt &&
           incoming().updatedAt == request.time &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['completed', 'updatedAt']) &&
+          (
+            // Action 1: Toggle completion
+            incoming().diff(existing()).affectedKeys().hasOnly(['completed', 'updatedAt']) ||
+            // Action 2: Sync task fields when parent notice is edited or rescheduled
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'dueDate', 'priority', 'category', 'completed', 'updatedAt'])
+          ) &&
           hasValidParentUser(userId);
 
         allow delete: if isOwner(userId) &&

@@ -26,6 +26,205 @@ export interface AnalyzedNoticePayload {
 }
 
 /**
+ * Computes Urgency, Importance, Student Relevance, Priority Score (0-100),
+ * Priority Level, and Priority Reason dynamically whenever any notice field
+ * (deadline, category, branch, year, action, consequences, etc.) or student profile changes.
+ */
+export function computePriorityMetrics(
+  fields: {
+    category: Notice['category'];
+    targetBranch: string;
+    targetYear: string;
+    targetAudience?: string;
+    deadline: string | null;
+    deadlineTime?: string | null;
+    actionType?: Notice['actionType'];
+    requiredAction?: string;
+    consequencesOfMissing?: string;
+    title?: string;
+  },
+  studentProfile?: StudentProfile
+): {
+  importance: number;
+  urgency: number;
+  studentRelevance: number;
+  priorityScore: number;
+  priorityLevel: Notice['priorityLevel'];
+  priorityReason: string;
+} {
+  const category = fields.category || 'General';
+  const targetBranch = fields.targetBranch || 'All Departments';
+  const targetYear = fields.targetYear || 'All Years';
+  const deadline = fields.deadline || '2026-08-18';
+  const deadlineTime = fields.deadlineTime || '5:00 PM';
+  const actionType = fields.actionType || 'portal_action';
+  const requiredAction = fields.requiredAction || '';
+  const consequences = fields.consequencesOfMissing || '';
+  const title = fields.title || '';
+
+  // 1. Student Relevance (0 - 100)
+  let studentRelevance = 85;
+  if (studentProfile) {
+    const profileBranch = (studentProfile.branch || '').toLowerCase().trim();
+    const profileYear = (studentProfile.year || '').toLowerCase().trim();
+    const targetBranchLower = targetBranch.toLowerCase().trim();
+    const targetYearLower = targetYear.toLowerCase().trim();
+
+    if (
+      targetBranchLower.includes('all') ||
+      targetBranchLower.includes('department') ||
+      targetBranchLower.includes('student')
+    ) {
+      studentRelevance = 86;
+    } else if (
+      profileBranch &&
+      (targetBranchLower.includes(profileBranch) || profileBranch.includes(targetBranchLower))
+    ) {
+      studentRelevance = 96;
+    } else {
+      studentRelevance = 42;
+    }
+
+    if (!targetYearLower.includes('all')) {
+      if (
+        profileYear &&
+        (targetYearLower.includes(profileYear) || profileYear.includes(targetYearLower))
+      ) {
+        studentRelevance = Math.min(100, studentRelevance + 4);
+      } else {
+        studentRelevance = Math.max(20, studentRelevance - 22);
+      }
+    }
+  }
+
+  // 2. Importance (0 - 100) based on category, actionType, requiredAction, and consequences
+  let importance = 65;
+  if (category === 'Examination') importance = 95;
+  else if (category === 'Fee') importance = 91;
+  else if (category === 'Placement') importance = 88;
+  else if (category === 'Assignment') importance = 84;
+  else if (category === 'Scholarship') importance = 80;
+  else if (category === 'Workshop / Event') importance = 64;
+  else importance = 56;
+
+  if (actionType === 'submit_form' || actionType === 'fee_payment') {
+    importance += 3;
+  } else if (actionType === 'assignment_submission') {
+    importance += 2;
+  } else if (actionType === 'read_acknowledge') {
+    importance -= 5;
+  }
+
+  const combinedText = `${title} ${requiredAction} ${consequences}`.toLowerCase();
+  if (/debar|mandatory|compulsory|penalty|fine|strictly|urgent|final|immediate/i.test(combinedText)) {
+    importance += 3;
+  }
+  importance = Math.max(25, Math.min(100, Math.round(importance)));
+
+  // 3. Urgency (0 - 100) based on deadline date & time
+  // Anchor against 2026-08-01 for the August 2026 academic term (or today if outside 2026)
+  let urgency = 82;
+  const parsedDeadline = new Date(`${deadline}T00:00:00`);
+  if (!Number.isNaN(parsedDeadline.getTime())) {
+    const year = parsedDeadline.getFullYear();
+    const anchorDate =
+      year === 2026
+        ? new Date('2026-08-01T00:00:00')
+        : new Date(new Date().toISOString().split('T')[0] + 'T00:00:00');
+
+    const diffDays = Math.round(
+      (parsedDeadline.getTime() - anchorDate.getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    if (diffDays <= 0) {
+      urgency = 99;
+    } else if (diffDays <= 35) {
+      // Smoothly scales from 98 (Aug 1) down to 50 (Sep 5) so every calendar day change updates the score
+      urgency = Math.round(98 - diffDays * 1.35);
+    } else {
+      urgency = Math.max(30, Math.round(50 - (diffDays - 35) * 0.5));
+    }
+
+    // Time of day modifier
+    if (/am\b/i.test(deadlineTime)) {
+      urgency = Math.min(100, urgency + 2);
+    }
+  }
+  urgency = Math.max(25, Math.min(100, urgency));
+
+  // 4. Weighted Priority Score
+  const priorityScore = Math.max(
+    10,
+    Math.min(100, Math.round(urgency * 0.4 + studentRelevance * 0.3 + importance * 0.3))
+  );
+
+  let priorityLevel: Notice['priorityLevel'] = 'Medium';
+  if (priorityScore >= 80) priorityLevel = 'Critical';
+  else if (priorityScore >= 65) priorityLevel = 'High';
+  else if (priorityScore >= 45) priorityLevel = 'Medium';
+  else priorityLevel = 'Low';
+
+  const priorityReason = `Score ${priorityScore}/100 (${priorityLevel}) calculated from deadline proximity on ${deadline} at ${deadlineTime} (${urgency}% urgency), ${category.toLowerCase()} weight (${importance}% importance), and ${studentRelevance}% relevance to ${studentProfile?.branch || targetBranch} (${studentProfile?.year || targetYear}).`;
+
+  return {
+    importance,
+    urgency,
+    studentRelevance,
+    priorityScore,
+    priorityLevel,
+    priorityReason,
+  };
+}
+
+/**
+ * Recalculates a full Notice object whenever any of its properties are edited
+ * or when its deadline is dragged on the calendar.
+ */
+export function recalculateNoticePriority(
+  notice: Notice,
+  studentProfile?: StudentProfile
+): Notice {
+  const targetBranch = notice.targetBranch || 'All Departments';
+  const targetYear = notice.targetYear || 'All Years';
+  const targetAudience =
+    notice.targetAudience || `${targetBranch} — ${targetYear}`;
+  const deadline = notice.deadline || '2026-08-18';
+  const deadlineTime = notice.deadlineTime || '5:00 PM';
+
+  const metrics = computePriorityMetrics(
+    {
+      category: notice.category,
+      targetBranch,
+      targetYear,
+      targetAudience,
+      deadline,
+      deadlineTime,
+      actionType: notice.actionType,
+      requiredAction: notice.requiredAction,
+      consequencesOfMissing: notice.consequencesOfMissing,
+      title: notice.title,
+    },
+    studentProfile
+  );
+
+  return {
+    ...notice,
+    targetBranch,
+    targetYear,
+    targetAudience,
+    deadline,
+    deadlineTime,
+    eventDate: notice.category === 'Workshop / Event' ? deadline : notice.eventDate,
+    importance: metrics.importance,
+    urgency: metrics.urgency,
+    studentRelevance: metrics.studentRelevance,
+    priorityScore: metrics.priorityScore,
+    priorityLevel: metrics.priorityLevel,
+    priorityReason: metrics.priorityReason,
+  };
+}
+
+/**
  * Deterministic client-side notice analyzer used automatically when deployed
  * to static hosts like GitHub Pages (where /api/* backend routes are not present).
  */
@@ -129,62 +328,19 @@ export function analyzeNoticeClientSide(
     requiredAction = 'Submit assignment PDF or repository to Classroom LMS';
   }
 
-  // Relevance matching against Student Profile
-  let studentRelevance = 80;
-  if (studentProfile) {
-    const profileBranch = (studentProfile.branch || '').toLowerCase();
-    const profileYear = (studentProfile.year || '').toLowerCase();
-    const targetBranchLower = targetBranch.toLowerCase();
-    const targetYearLower = targetYear.toLowerCase();
+  const actionType: Notice['actionType'] =
+    category === 'Examination'
+      ? 'submit_form'
+      : category === 'Fee'
+      ? 'fee_payment'
+      : category === 'Assignment'
+      ? 'assignment_submission'
+      : 'portal_action';
 
-    if (targetBranchLower.includes('all') || targetBranchLower.includes('department')) {
-      studentRelevance = 85;
-    } else if (
-      profileBranch &&
-      (targetBranchLower.includes(profileBranch) || profileBranch.includes(targetBranchLower))
-    ) {
-      studentRelevance = 95;
-    } else {
-      studentRelevance = 35;
-    }
-
-    if (!targetYearLower.includes('all')) {
-      if (
-        profileYear &&
-        (targetYearLower.includes(profileYear) || profileYear.includes(targetYearLower))
-      ) {
-        studentRelevance = Math.min(100, studentRelevance + 5);
-      } else {
-        studentRelevance = Math.max(20, studentRelevance - 25);
-      }
-    }
-  }
-
-  let urgency = 85;
-  let importance = 90;
-  if (category === 'Examination' || category === 'Fee') {
-    importance = 95;
-    urgency = 90;
-  } else if (category === 'Assignment' || category === 'Placement') {
-    importance = 88;
-    urgency = 82;
-  } else if (category === 'Workshop / Event') {
-    importance = 65;
-    urgency = 60;
-  } else {
-    importance = 55;
-    urgency = 55;
-  }
-
-  const priorityScore = Math.round(
-    urgency * 0.35 + studentRelevance * 0.35 + importance * 0.3
-  );
-
-  let priorityLevel: Notice['priorityLevel'] = 'Medium';
-  if (priorityScore >= 80) priorityLevel = 'Critical';
-  else if (priorityScore >= 65) priorityLevel = 'High';
-  else if (priorityScore >= 45) priorityLevel = 'Medium';
-  else priorityLevel = 'Low';
+  const consequencesOfMissing =
+    category === 'Examination'
+      ? 'Immediate debarment from appearing in semester examinations.'
+      : 'Administrative late fine or portal hold.';
 
   let title = `${category}: ${targetBranch}`;
   const lines = text
@@ -201,6 +357,21 @@ export function analyzeNoticeClientSide(
     }
   }
 
+  const metrics = computePriorityMetrics(
+    {
+      category,
+      targetBranch,
+      targetYear,
+      deadline,
+      deadlineTime,
+      actionType,
+      requiredAction,
+      consequencesOfMissing,
+      title,
+    },
+    studentProfile
+  );
+
   return {
     title,
     category,
@@ -215,19 +386,14 @@ export function analyzeNoticeClientSide(
       /seminar hall\s*\d*|auditorium|lab\s*\d+|room\s*\d+/i.exec(text)?.[0] ||
       'College Campus / Portal',
     requiredAction,
-    actionType:
-      category === 'Examination'
-        ? 'submit_form'
-        : category === 'Fee'
-        ? 'fee_payment'
-        : 'portal_action',
+    actionType,
     portalUrl: 'https://aktu.ac.in',
-    importance,
-    urgency,
-    studentRelevance,
-    priorityScore,
-    priorityLevel,
-    priorityReason: `Score calculated from deadline proximity (${deadline}), ${category.toLowerCase()} priority weighting, and ${studentRelevance}% match with your student profile.`,
+    importance: metrics.importance,
+    urgency: metrics.urgency,
+    studentRelevance: metrics.studentRelevance,
+    priorityScore: metrics.priorityScore,
+    priorityLevel: metrics.priorityLevel,
+    priorityReason: metrics.priorityReason,
     summary: text.slice(0, 160) + (text.length > 160 ? '...' : ''),
     keyPoints: [
       `Category: ${category}`,
@@ -235,10 +401,7 @@ export function analyzeNoticeClientSide(
       `Action: ${requiredAction}`,
       `Deadline: ${deadline} (${deadlineTime})`,
     ],
-    consequencesOfMissing:
-      category === 'Examination'
-        ? 'Immediate debarment from appearing in semester examinations.'
-        : 'Administrative late fine or portal hold.',
+    consequencesOfMissing,
   };
 }
 

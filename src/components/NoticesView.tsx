@@ -8,7 +8,8 @@ import {
   Plus,
   Flag,
   Calendar as CalendarIcon,
-  RotateCcw
+  RotateCcw,
+  Pencil
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Notice } from '../types';
@@ -16,6 +17,7 @@ import { Notice } from '../types';
 interface NoticesViewProps {
   notices: Notice[];
   onSelectNotice?: (notice: Notice) => void;
+  onEditNotice?: (notice: Notice) => void;
   onToggleStatus?: (noticeId: string) => void;
   onDeleteNotice?: (noticeId: string) => void;
   onOpenIngestModal?: () => void;
@@ -24,6 +26,7 @@ interface NoticesViewProps {
 export const NoticesView: React.FC<NoticesViewProps> = ({ 
   notices, 
   onSelectNotice,
+  onEditNotice,
   onToggleStatus,
   onDeleteNotice,
   onOpenIngestModal,
@@ -63,6 +66,15 @@ export const NoticesView: React.FC<NoticesViewProps> = ({
   const handleDelete = (e: React.MouseEvent, noticeId: string) => {
     e.stopPropagation();
     onDeleteNotice?.(noticeId);
+  };
+
+  const handleEdit = (e: React.MouseEvent, notice: Notice) => {
+    e.stopPropagation();
+    if (onEditNotice) {
+      onEditNotice(notice);
+    } else {
+      onSelectNotice?.(notice);
+    }
   };
 
   const getFlagColor = (level: string) => {
@@ -244,13 +256,22 @@ export const NoticesView: React.FC<NoticesViewProps> = ({
                       </span>
                     </div>
 
-                    <button
-                      onClick={(e) => handleDelete(e, notice.id)}
-                      className="p-1.5 rounded-lg text-[#8C867B] hover:text-[#EF4444] hover:bg-[#FEF2F2] transition-colors cursor-pointer"
-                      title="Delete notice"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => handleEdit(e, notice)}
+                        className="p-1.5 rounded-lg text-[#8C867B] hover:text-[#1C1B18] hover:bg-[#F6F3EC] transition-colors cursor-pointer"
+                        title="Edit notice & deadline"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={(e) => handleDelete(e, notice.id)}
+                        className="p-1.5 rounded-lg text-[#8C867B] hover:text-[#EF4444] hover:bg-[#FEF2F2] transition-colors cursor-pointer"
+                        title="Delete notice"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   {/* 1. Heading */}
@@ -295,7 +316,7 @@ export const NoticesView: React.FC<NoticesViewProps> = ({
                     </span>
                   </div>
 
-                  {/* 4. Action Buttons: Mark as Done + Delete */}
+                  {/* 4. Action Buttons: Mark as Done + Edit + Delete */}
                   <div className="flex items-center justify-between gap-2">
                     <button
                       onClick={(e) => handleActionComplete(e, notice)}
@@ -319,11 +340,18 @@ export const NoticesView: React.FC<NoticesViewProps> = ({
                     </button>
 
                     <button
+                      onClick={(e) => handleEdit(e, notice)}
+                      className="type-button py-2 px-3 rounded-xl bg-[#FAF8F5] hover:bg-[#F6F3EC] text-[#57534E] hover:text-[#1C1B18] border border-[#EAE5DC] flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+
+                    <button
                       onClick={(e) => handleDelete(e, notice.id)}
                       className="type-button py-2 px-3 rounded-xl bg-[#FAF8F5] hover:bg-[#FEF2F2] text-[#78736A] hover:text-[#EF4444] border border-[#EAE5DC] flex items-center gap-1 transition-colors cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                      <span>Delete</span>
                     </button>
                   </div>
                 </div>
