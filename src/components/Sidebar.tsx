@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Sun,
   Moon,
+  LogOut,
   X
 } from 'lucide-react';
 import { StudentProfile } from '../types';
@@ -15,7 +16,10 @@ interface SidebarProps {
   currentTab: string;
   setCurrentTab: (tab: string) => void;
   profile: StudentProfile;
+  userEmail?: string | null;
+  userPhotoUrl?: string | null;
   onOpenProfile: () => void;
+  onSignOut?: () => void;
   criticalCount: number;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
@@ -27,7 +31,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   setCurrentTab,
   profile,
+  userEmail,
+  userPhotoUrl,
   onOpenProfile,
+  onSignOut,
   criticalCount,
   isDarkMode,
   onToggleDarkMode,
@@ -79,9 +86,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               className="flex-1 flex items-center gap-2.5 py-2 px-2 -mx-2 rounded-xl hover:bg-[#ECE7DF] transition-colors cursor-pointer text-left group min-w-0"
             >
-              <div className="type-caption font-semibold w-8 h-8 rounded-full bg-[#F2C6B6] border border-[#E2B2A0] flex items-center justify-center text-[#5C3428] shadow-2xs shrink-0">
-                {initials}
-              </div>
+              {userPhotoUrl ? (
+                <img
+                  src={userPhotoUrl}
+                  alt={profile.name}
+                  referrerPolicy="no-referrer"
+                  className="w-8 h-8 rounded-full border border-[#E2B2A0] object-cover shrink-0"
+                />
+              ) : (
+                <div className="type-caption font-semibold w-8 h-8 rounded-full bg-[#F2C6B6] border border-[#E2B2A0] flex items-center justify-center text-[#5C3428] shadow-2xs shrink-0">
+                  {initials}
+                </div>
+              )}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1">
                   <span className="type-section-title text-[#1C1B18] truncate">
@@ -92,6 +108,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <p className="type-caption truncate">
                   {profile.branch} · {profile.year}
                 </p>
+                {userEmail && (
+                  <p className="type-caption truncate opacity-80">
+                    {userEmail}
+                  </p>
+                )}
               </div>
             </button>
 
@@ -144,8 +165,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </nav>
         </div>
 
-        {/* Theme Toggle at Bottom of Sidebar */}
-        <div className="pt-3 border-t border-[#EAE5DC]">
+        {/* Theme Toggle & Account Switch/Sign Out at Bottom of Sidebar */}
+        <div className="pt-3 border-t border-[#EAE5DC] space-y-2">
           <button
             onClick={onToggleDarkMode}
             className="type-button w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-[#FAF8F5] hover:bg-[#ECE7DF] border border-[#EAE5DC] text-[#1C1B18] transition-colors cursor-pointer"
@@ -167,6 +188,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Switch
             </span>
           </button>
+
+          {onSignOut && (
+            <button
+              onClick={onSignOut}
+              className="type-button w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-[#FAF8F5] hover:bg-[#FEF2F2] border border-[#EAE5DC] text-[#57534E] hover:text-[#EF4444] transition-colors cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <LogOut className="w-4 h-4" />
+                <span>Sign Out</span>
+              </span>
+              <span className="type-caption">Switch User</span>
+            </button>
+          )}
         </div>
       </aside>
     </>

@@ -1,0 +1,221 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Primitives
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Master Gate: Verify parent user document exists and belongs to the authenticated user
+    function hasValidParentUser(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId)) &&
+        get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+    }
+
+    // Validation Blueprint: UserProfile
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'name', 'branch', 'year', 'college', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'name', 'branch', 'year', 'college', 'createdAt', 'updatedAt']) &&
+        data.uid == request.auth.uid &&
+        data.uid == userId &&
+        isValidId(data.uid) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.branch is string && data.branch.size() >= 1 && data.branch.size() <= 100 &&
+        data.year is string && data.year.size() >= 1 && data.year.size() <= 50 &&
+        data.college is string && data.college.size() >= 1 && data.college.size() <= 200 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: NoticeDocument
+    function isValidNoticeDocument(data, userId, noticeId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'title', 'rawContent', 'category', 'targetAudience',
+          'targetBranch', 'targetYear', 'deadline', 'deadlineTime', 'venue',
+          'requiredAction', 'actionType', 'importance', 'urgency', 'studentRelevance',
+          'priorityScore', 'priorityLevel', 'priorityReason', 'summary', 'keyPoints',
+          'consequencesOfMissing', 'status', 'source', 'sourceFileName', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerId', 'title', 'rawContent', 'category', 'targetAudience',
+          'targetBranch', 'targetYear', 'deadline', 'deadlineTime', 'venue',
+          'requiredAction', 'actionType', 'importance', 'urgency', 'studentRelevance',
+          'priorityScore', 'priorityLevel', 'priorityReason', 'summary', 'keyPoints',
+          'consequencesOfMissing', 'status', 'source', 'sourceFileName', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id == noticeId &&
+        isValidId(data.id) &&
+        data.ownerId == request.auth.uid &&
+        data.ownerId == userId &&
+        isValidId(data.ownerId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 300 &&
+        data.rawContent is string && data.rawContent.size() >= 1 && data.rawContent.size() <= 20000 &&
+        data.category is string && data.category in ['Examination', 'Assignment', 'Fee', 'Scholarship', 'Placement', 'Workshop / Event', 'General'] &&
+        data.targetAudience is string && data.targetAudience.size() >= 1 && data.targetAudience.size() <= 200 &&
+        data.targetBranch is string && data.targetBranch.size() >= 1 && data.targetBranch.size() <= 120 &&
+        data.targetYear is string && data.targetYear.size() >= 1 && data.targetYear.size() <= 80 &&
+        data.deadline is string && data.deadline.size() >= 1 && data.deadline.size() <= 40 &&
+        data.deadlineTime is string && data.deadlineTime.size() >= 1 && data.deadlineTime.size() <= 40 &&
+        data.venue is string && data.venue.size() >= 1 && data.venue.size() <= 200 &&
+        data.requiredAction is string && data.requiredAction.size() >= 1 && data.requiredAction.size() <= 500 &&
+        data.actionType is string && data.actionType in ['submit_form', 'fee_payment', 'assignment_submission', 'event_registration', 'read_acknowledge', 'portal_action'] &&
+        data.importance is number && data.importance >= 0 && data.importance <= 100 &&
+        data.urgency is number && data.urgency >= 0 && data.urgency <= 100 &&
+        data.studentRelevance is number && data.studentRelevance >= 0 && data.studentRelevance <= 100 &&
+        data.priorityScore is number && data.priorityScore >= 0 && data.priorityScore <= 100 &&
+        data.priorityLevel is string && data.priorityLevel in ['Critical', 'High', 'Medium', 'Low'] &&
+        data.priorityReason is string && data.priorityReason.size() >= 1 && data.priorityReason.size() <= 1000 &&
+        data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 1000 &&
+        data.keyPoints is list && data.keyPoints.size() <= 10 &&
+        (data.keyPoints.size() == 0 || (data.keyPoints[0] is string && data.keyPoints[0].size() <= 300)) &&
+        data.consequencesOfMissing is string && data.consequencesOfMissing.size() <= 500 &&
+        data.status is string && data.status in ['active', 'completed', 'archived'] &&
+        data.source is string && data.source in ['text', 'pdf', 'image'] &&
+        data.sourceFileName is string && data.sourceFileName.size() <= 255 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: TaskDocument
+    function isValidTaskDocument(data, userId, taskId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'noticeId', 'title', 'dueDate',
+          'priority', 'category', 'completed', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerId', 'noticeId', 'title', 'dueDate',
+          'priority', 'category', 'completed', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id == taskId &&
+        isValidId(data.id) &&
+        data.ownerId == request.auth.uid &&
+        data.ownerId == userId &&
+        isValidId(data.ownerId) &&
+        data.noticeId is string && data.noticeId.size() <= 128 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 300 &&
+        data.dueDate is string && data.dueDate.size() >= 1 && data.dueDate.size() <= 40 &&
+        data.priority is string && data.priority in ['Critical', 'High', 'Medium', 'Low'] &&
+        data.category is string && data.category in ['Examination', 'Assignment', 'Fee', 'Scholarship', 'Placement', 'Workshop / Event', 'General'] &&
+        data.completed is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Collection: /users/{userId}
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'branch', 'year', 'college', 'updatedAt']);
+
+      allow delete: if false;
+
+      // Subcollection: /users/{userId}/notices/{noticeId}
+      match /notices/{noticeId} {
+        allow get: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(noticeId) &&
+          existing().ownerId == request.auth.uid &&
+          hasValidParentUser(userId);
+
+        allow list: if isOwner(userId) &&
+          existing().ownerId == request.auth.uid;
+
+        allow create: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(noticeId) &&
+          isValidNoticeDocument(incoming(), userId, noticeId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasValidParentUser(userId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(noticeId) &&
+          isValidNoticeDocument(incoming(), userId, noticeId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+          hasValidParentUser(userId);
+
+        allow delete: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(noticeId) &&
+          existing().ownerId == request.auth.uid &&
+          hasValidParentUser(userId);
+      }
+
+      // Subcollection: /users/{userId}/tasks/{taskId}
+      match /tasks/{taskId} {
+        allow get: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(taskId) &&
+          existing().ownerId == request.auth.uid &&
+          hasValidParentUser(userId);
+
+        allow list: if isOwner(userId) &&
+          existing().ownerId == request.auth.uid;
+
+        allow create: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(taskId) &&
+          isValidTaskDocument(incoming(), userId, taskId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasValidParentUser(userId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(taskId) &&
+          isValidTaskDocument(incoming(), userId, taskId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['completed', 'updatedAt']) &&
+          hasValidParentUser(userId);
+
+        allow delete: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(taskId) &&
+          existing().ownerId == request.auth.uid &&
+          hasValidParentUser(userId);
+      }
+    }
+  }
+}

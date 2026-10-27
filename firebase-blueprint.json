@@ -1,0 +1,286 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Academic profile for an authenticated student user.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the student.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "branch": {
+          "type": "string",
+          "description": "Academic branch of the student.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "year": {
+          "type": "string",
+          "description": "Current academic year.",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "college": {
+          "type": "string",
+          "description": "College or institution name.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of profile creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last profile update."
+        }
+      },
+      "required": ["uid", "name", "branch", "year", "college", "createdAt", "updatedAt"]
+    },
+    "NoticeDocument": {
+      "title": "NoticeDocument",
+      "description": "An ingested and prioritized college notice belonging to a specific student.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "rawContent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "category": {
+          "type": "string",
+          "enum": ["Examination", "Assignment", "Fee", "Scholarship", "Placement", "Workshop / Event", "General"]
+        },
+        "targetAudience": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "targetBranch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "targetYear": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "deadline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "deadlineTime": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "venue": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "requiredAction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "actionType": {
+          "type": "string",
+          "enum": ["submit_form", "fee_payment", "assignment_submission", "event_registration", "read_acknowledge", "portal_action"]
+        },
+        "importance": {
+          "type": "number"
+        },
+        "urgency": {
+          "type": "number"
+        },
+        "studentRelevance": {
+          "type": "number"
+        },
+        "priorityScore": {
+          "type": "number"
+        },
+        "priorityLevel": {
+          "type": "string",
+          "enum": ["Critical", "High", "Medium", "Low"]
+        },
+        "priorityReason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "keyPoints": {
+          "type": "array",
+          "description": "Up to 10 key bullet points."
+        },
+        "consequencesOfMissing": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "completed", "archived"]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["text", "pdf", "image"]
+        },
+        "sourceFileName": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "title",
+        "rawContent",
+        "category",
+        "targetAudience",
+        "targetBranch",
+        "targetYear",
+        "deadline",
+        "deadlineTime",
+        "venue",
+        "requiredAction",
+        "actionType",
+        "importance",
+        "urgency",
+        "studentRelevance",
+        "priorityScore",
+        "priorityLevel",
+        "priorityReason",
+        "summary",
+        "keyPoints",
+        "consequencesOfMissing",
+        "status",
+        "source",
+        "sourceFileName",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TaskDocument": {
+      "title": "TaskDocument",
+      "description": "An actionable academic task belonging to a specific student.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "noticeId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "dueDate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["Critical", "High", "Medium", "Low"]
+        },
+        "category": {
+          "type": "string",
+          "enum": ["Examination", "Assignment", "Fee", "Scholarship", "Placement", "Workshop / Event", "General"]
+        },
+        "completed": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "noticeId",
+        "title",
+        "dueDate",
+        "priority",
+        "category",
+        "completed",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Root user profile document isolated per authenticated student."
+    },
+    "/users/{userId}/notices/{noticeId}": {
+      "schema": { "$ref": "#/entities/NoticeDocument" },
+      "description": "Per-user college notices subcollection."
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/TaskDocument" },
+      "description": "Per-user academic tasks subcollection."
+    }
+  }
+}

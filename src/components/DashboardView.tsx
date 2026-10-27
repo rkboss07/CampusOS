@@ -11,12 +11,13 @@ import {
   Plus,
   Flag,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  Inbox
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Notice, StudentProfile, Task, DailyBrief } from '../types';
 import { getMonthDays } from '../utils/calendarUtils';
-import { extractTextFromPdfFile } from '../utils/pdfExtractor';
+import { extractTextFromPdfFile, fileToBase64 } from '../utils/pdfExtractor';
 
 interface DashboardViewProps {
   notices: Notice[];
@@ -54,29 +55,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [sortByScore, setSortByScore] = useState(true);
   const [inputText, setInputText] = useState('');
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [selectedFileBase64, setSelectedFileBase64] = useState<string | undefined>(undefined);
 
   const augustDays = getMonthDays(2026, 7);
 
   const handleQuickSubmit = (sample?: string) => {
     const textToSubmit = sample || inputText;
-    if (!textToSubmit.trim()) return;
-    onPrioritizeNotice(textToSubmit, selectedFileName ? { fileName: selectedFileName } : undefined);
+    if (!textToSubmit.trim() && !selectedFileBase64) return;
+    onPrioritizeNotice(
+      textToSubmit || `Uploaded PDF Circular: ${selectedFileName}`,
+      selectedFileName ? { fileName: selectedFileName, base64: selectedFileBase64 } : undefined
+    );
     if (!sample) {
       setInputText('');
       setSelectedFileName(null);
+      setSelectedFileBase64(undefined);
     }
   };
 
   const handleInlinePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setSelectedFileName(file.name);
     try {
-      const extracted = await extractTextFromPdfFile(file);
-      setSelectedFileName(file.name);
+      const [extracted, b64] = await Promise.all([
+        extractTextFromPdfFile(file),
+        fileToBase64(file),
+      ]);
+      setSelectedFileBase64(b64);
       setInputText(extracted.text || `Circular notice from: ${file.name}`);
     } catch (err) {
       console.warn('PDF extraction failed:', err);
-      setSelectedFileName(file.name);
     }
   };
 
@@ -410,7 +419,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <button
               onClick={() => handleQuickSubmit()}
-              disabled={isProcessingNotice || !inputText.trim()}
+              disabled={isProcessingNotice || (!inputText.trim() && !selectedFileBase64)}
               className="type-button w-full py-3 px-5 bg-[#1C1B18] hover:bg-[#33312C] disabled:opacity-40 text-white rounded-2xl flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-all"
             >
               <Sparkles className="w-4 h-4 text-[#F97316]" />
@@ -634,9 +643,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* VIEW 2: CARDS GRID VIEW */}
       {viewMode === 'cards' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
-          {filteredNotices.map((notice) => renderNoticeCard(notice))}
-        </div>
+        filteredNotices.length === 0 ? (
+          <div className="p-10 text-center rounded-2xl bg-[#FAF8F5] border border-[#EAE5DC] space-y-2.5">
+            <div className="w-10 h-10 rounded-full bg-[#FFF0E5] text-[#F97316] flex items-center justify-center mx-auto border border-[#FDBA74]/40">
+              <Inbox className="w-5 h-5" />
+            </div>
+            <h3 className="type-section-title text-[#1C1B18]">No notices in your workspace yet</h3>
+            <p className="type-body text-[#78736A] max-w-md mx-auto">
+              Upload a PDF circular or paste a notice above to prioritize it and add it to your personal board.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
+            {filteredNotices.map((notice) => renderNoticeCard(notice))}
+          </div>
+        )
       )}
 
       {/* VIEW 3: INLINE SMART CALENDAR VIEW */}
@@ -666,39 +687,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             ))}
             {augustDays.slice(0, 35).map((item, i) => {
-              const is18 = item.dateString === '2026-08-18';
-              const is21 = item.dateString === '2026-08-21';
-              const is24 = item.dateString === '2026-08-24';
-              const is30 = item.dateString === '2026-08-30';
+              const matchedNotice = notices.find(
+                (n) => n.deadline === item.dateString || n.eventDate === item.dateString
+              );
 
               return (
                 <div
                   key={i}
                   onClick={() => {
-                    const match = notices.find(
-                      (n) => n.deadline === item.dateString || n.eventDate === item.dateString
-                    );
-                    if (match) onSelectNotice(match);
+                    if (matchedNotice) onSelectNotice(matchedNotice);
                   }}
                   className={`type-caption h-16 rounded-xl p-2 border flex flex-col justify-between text-left transition-all ${
                     !item.isCurrentMonth
                       ? 'opacity-35 border-transparent bg-transparent text-[#9A948A]'
-                      : is18
-                      ? 'bg-[#FEF2F2] border-[#EF4444] text-[#991B1B] font-semibold cursor-pointer'
-                      : is21
+                      : matchedNotice
                       ? 'bg-[#FFF7ED] border-[#F97316] text-[#9A3412] font-semibold cursor-pointer'
-                      : is24
-                      ? 'bg-[#FEF9E7] border-[#F59E0B] text-[#92400E] font-semibold cursor-pointer'
-                      : is30
-                      ? 'bg-[#ECFDF5] border-[#10B981] text-[#065F46] font-semibold cursor-pointer'
                       : 'border-[#EAE5DC] bg-white text-[#2C2A26]'
                   }`}
                 >
                   <span className="tabular-nums">{item.day}</span>
-                  {is18 && <span className="type-caption bg-[#EF4444] text-white px-1.5 py-0.5 rounded font-semibold truncate">Exam Form</span>}
-                  {is21 && <span className="type-caption bg-[#F97316] text-white px-1.5 py-0.5 rounded font-semibold truncate">AI Workshop</span>}
-                  {is24 && <span className="type-caption bg-[#F59E0B] text-white px-1.5 py-0.5 rounded font-semibold truncate">DBMS Lab</span>}
-                  {is30 && <span className="type-caption bg-[#10B981] text-white px-1.5 py-0.5 rounded font-semibold truncate">Fee Dues</span>}
+                  {matchedNotice && (
+                    <span className="type-caption bg-[#F97316] text-white px-1.5 py-0.5 rounded font-semibold truncate">
+                      {matchedNotice.category}
+                    </span>
+                  )}
                 </div>
               );
             })}

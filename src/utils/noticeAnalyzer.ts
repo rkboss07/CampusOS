@@ -72,37 +72,50 @@ export function analyzeNoticeClientSide(
   else if (/4th\s*year|final\s*year/i.test(lower)) targetYear = '4th Year';
 
   // Date extraction
-  let deadline = '2026-08-18';
-  const deadlineTime = '5:00 PM';
-  const dateMatch =
-    text.match(
-      /(\d{1,2})[\s/-]+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[\s/-]+(\d{4})/i
-    ) || text.match(/(\d{4})[-/](\d{2})[-/](\d{2})/);
+  const monthNames: Record<string, string> = {
+    jan: '01',
+    feb: '02',
+    mar: '03',
+    apr: '04',
+    may: '05',
+    jun: '06',
+    jul: '07',
+    aug: '08',
+    sep: '09',
+    oct: '10',
+    nov: '11',
+    dec: '12',
+  };
 
-  if (dateMatch) {
-    if (dateMatch[3] && dateMatch[3].length === 4) {
-      const monthNames: Record<string, string> = {
-        jan: '01',
-        feb: '02',
-        mar: '03',
-        apr: '04',
-        may: '05',
-        jun: '06',
-        jul: '07',
-        aug: '08',
-        sep: '09',
-        oct: '10',
-        nov: '11',
-        dec: '12',
-      };
-      const monthKey = dateMatch[2].substring(0, 3).toLowerCase();
-      const month = monthNames[monthKey] || '08';
-      const day = dateMatch[1].padStart(2, '0');
-      deadline = `${dateMatch[3]}-${month}-${day}`;
-    } else if (dateMatch[1] && dateMatch[1].length === 4) {
-      deadline = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
-    }
+  let deadline = '2026-08-18';
+  const dmyTextMatch = text.match(
+    /\b(\d{1,2})(?:st|nd|rd|th)?[\s,/-]+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[\s,/-]+(\d{4})\b/i
+  );
+  const mdyTextMatch = text.match(
+    /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[\s,/-]+(\d{1,2})(?:st|nd|rd|th)?(?:[\s,/-]+(\d{4}))?\b/i
+  );
+  const isoMatch = text.match(/\b(\d{4})[-/](\d{2})[-/](\d{2})\b/);
+  const dmySlashMatch = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/);
+
+  if (dmyTextMatch) {
+    const day = dmyTextMatch[1].padStart(2, '0');
+    const month = monthNames[dmyTextMatch[2].substring(0, 3).toLowerCase()] || '08';
+    deadline = `${dmyTextMatch[3]}-${month}-${day}`;
+  } else if (mdyTextMatch) {
+    const month = monthNames[mdyTextMatch[1].substring(0, 3).toLowerCase()] || '08';
+    const day = mdyTextMatch[2].padStart(2, '0');
+    const year = mdyTextMatch[3] || '2026';
+    deadline = `${year}-${month}-${day}`;
+  } else if (isoMatch) {
+    deadline = `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  } else if (dmySlashMatch) {
+    const day = dmySlashMatch[1].padStart(2, '0');
+    const month = dmySlashMatch[2].padStart(2, '0');
+    deadline = `${dmySlashMatch[3]}-${month}-${day}`;
   }
+
+  const timeMatch = text.match(/\b(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)|\d{1,2}\s*(?:AM|PM|am|pm))\b/);
+  const deadlineTime = timeMatch ? timeMatch[1].toUpperCase() : '5:00 PM';
 
   // Required action extraction
   let requiredAction = 'Review notice details and take necessary action';
@@ -240,7 +253,7 @@ export async function analyzeNoticeWithFallback(params: {
   studentProfile: StudentProfile;
 }): Promise<AnalyzedNoticePayload> {
   try {
-    const res = await fetch('./api/analyze-notice', {
+    const res = await fetch('/api/analyze-notice', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
@@ -254,7 +267,7 @@ export async function analyzeNoticeWithFallback(params: {
       }
     }
   } catch {
-    // Expected on static hosts like GitHub Pages where ./api/* does not exist
+    // Expected on static hosts like GitHub Pages where /api/* does not exist
   }
 
   return analyzeNoticeClientSide(params.noticeText, params.studentProfile);

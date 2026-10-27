@@ -104,7 +104,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
             <MoreHorizontal className="w-4 h-4 text-[#57534E]" />
           </div>
 
-          {pendingTasks.map((task) => (
+          {pendingTasks.length === 0 ? (
+            <div className="type-body p-8 rounded-2xl bg-[#FAF8F5] border border-[#EAE5DC] text-center text-[#78736A]">
+              No pending tasks yet. Add a task above or upload a college notice to generate deliverables.
+            </div>
+          ) : (
+            pendingTasks.map((task) => (
             <div
               key={task.id}
               onClick={() => onToggleTask(task.id)}
@@ -147,7 +152,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 </span>
               </div>
             </div>
-          ))}
+          )))}
         </div>
 
         {/* Completed Column */}
